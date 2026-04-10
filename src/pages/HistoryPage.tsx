@@ -187,6 +187,14 @@ export function HistoryPage() {
           <div className="space-y-6">
             {sessions.map((item) => (
               <div key={item.id} className="group relative bg-surface-container rounded-xl overflow-hidden flex flex-col md:flex-row gap-0 transition-all hover:bg-surface-container-high">
+                {/* Delete button - always visible, top-right of card */}
+                <button
+                  onClick={(e) => { e.stopPropagation(); setDeleteTarget(item); }}
+                  className="absolute top-3 right-3 w-9 h-9 rounded-full bg-error/80 flex items-center justify-center text-white shadow-lg shadow-black/30 hover:bg-error active:scale-90 transition-all z-20"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+
                 {/* Thumbnail / Play area */}
                 <div
                   className={cn(
@@ -236,17 +244,8 @@ export function HistoryPage() {
                   )}
                 </div>
 
-                <div className="p-6 flex-1 flex flex-col justify-between relative">
-                  {/* Delete button */}
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setDeleteTarget(item); }}
-                    className="absolute top-4 right-4 w-9 h-9 rounded-lg bg-error/10 border border-error/20 flex items-center justify-center text-error hover:bg-error/20 active:scale-90 transition-all z-10"
-                    title="删除记录"
-                  >
-                    <Trash2 className="w-4.5 h-4.5" />
-                  </button>
-
-                  <div className="flex justify-between items-start mb-4 pr-10">
+                <div className="p-6 flex-1 flex flex-col justify-between">
+                  <div className="flex justify-between items-start mb-4 pr-6">
                     <div>
                       <div className="flex items-center gap-2 mb-1">
                         <span className={cn(
