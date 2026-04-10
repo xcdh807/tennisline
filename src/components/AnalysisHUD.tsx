@@ -1,4 +1,4 @@
-import { CheckCircle2, XCircle, MinusCircle, Activity } from 'lucide-react';
+import { CheckCircle2, XCircle, MinusCircle, Activity, CircleDot } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import type { AnalysisData } from '@/src/lib/useVideoAnalysis';
 
@@ -20,15 +20,29 @@ export function AnalysisHUD({ data, compact = false }: AnalysisHUDProps) {
 
   return (
     <div className="absolute inset-0 z-10 pointer-events-none">
-      {/* Top center: Judgment badge */}
+      {/* Top center: status indicator */}
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-2 px-3 py-1 glass-panel rounded-full">
+        <div className={`w-2 h-2 rounded-full ${data.ballDetected ? 'bg-primary animate-pulse' : 'bg-outline'}`} />
+        <span className={`text-[9px] uppercase tracking-widest font-bold ${data.ballDetected ? 'text-primary' : 'text-on-surface-variant'}`}>
+          {data.ballDetected ? '网球追踪中' : '等待检测...'}
+        </span>
+        {data.motionLevel > 0 && (
+          <div className="flex items-center gap-1 ml-1 pl-2 border-l border-outline-variant/30">
+            <Activity className="w-3 h-3 text-on-surface-variant" />
+            <span className="text-[9px] text-on-surface-variant">{data.motionLevel}%</span>
+          </div>
+        )}
+      </div>
+
+      {/* Judgment badge - only show when ball is detected and there's a judgment */}
       <AnimatePresence mode="wait">
-        {j && (
+        {j && data.ballDetected && (
           <motion.div
-            key={data.judgment! + data.marginMm}
+            key={`${data.judgment}-${data.rally}`}
             initial={{ y: -20, opacity: 0, scale: 0.8 }}
             animate={{ y: 0, opacity: 1, scale: 1 }}
             exit={{ y: -10, opacity: 0 }}
-            className={`absolute top-20 left-1/2 -translate-x-1/2 glass-panel px-5 py-2.5 rounded-xl border border-white/10 flex items-center gap-3 ${j.glow}`}
+            className={`absolute top-16 left-1/2 -translate-x-1/2 glass-panel px-5 py-2.5 rounded-xl border border-white/10 flex items-center gap-3 ${j.glow}`}
           >
             <div className={`${j.color} px-3 py-1 rounded-lg font-headline font-bold text-lg flex items-center gap-1.5`}>
               <j.icon className="w-5 h-5" />
@@ -42,78 +56,65 @@ export function AnalysisHUD({ data, compact = false }: AnalysisHUDProps) {
         )}
       </AnimatePresence>
 
-      {/* Shot type badge */}
-      {data.shotType && (
-        <motion.div
-          key={data.shotType + data.speed}
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          className="absolute top-36 right-4 glass-panel px-3 py-1.5 rounded-lg border border-primary/20"
-        >
-          <div className="flex items-center gap-2">
-            <Activity className="w-3.5 h-3.5 text-primary" />
-            <span className="text-xs font-bold text-primary">{data.shotType}</span>
-          </div>
-        </motion.div>
-      )}
+      {/* Shot type badge - only show when ball is moving */}
+      <AnimatePresence>
+        {data.shotType && data.ballDetected && data.speed > 20 && (
+          <motion.div
+            key={data.shotType}
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 20 }}
+            className="absolute top-32 right-4 glass-panel px-3 py-1.5 rounded-lg border border-primary/20"
+          >
+            <div className="flex items-center gap-2">
+              <CircleDot className="w-3.5 h-3.5 text-primary" />
+              <span className="text-xs font-bold text-primary">{data.shotType}</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {/* Left gauges */}
+      {/* Left gauges - only show values when ball is detected */}
       <div className={`absolute left-3 ${compact ? 'bottom-36' : 'top-1/2 -translate-y-1/2'} flex flex-col gap-3`}>
-        <motion.div
-          key={'speed-' + data.speed}
-          initial={{ x: -10, opacity: 0 }}
-          animate={{ x: 0, opacity: 1 }}
-          className="glass-panel p-2.5 rounded-lg border-l-4 border-primary"
-        >
+        <div className="glass-panel p-2.5 rounded-lg border-l-4 border-primary">
           <span className="text-[8px] uppercase tracking-widest font-bold text-on-surface-variant block">球速</span>
           <div className="flex items-baseline gap-0.5">
-            <span className="font-headline text-xl font-bold text-white">{data.speed || '--'}</span>
+            <span className="font-headline text-xl font-bold text-white">
+              {data.ballDetected && data.speed > 0 ? data.speed : '--'}
+            </span>
             <span className="text-on-surface-variant text-[9px]">KM/H</span>
           </div>
-        </motion.div>
-        <motion.div
-          key={'rpm-' + data.rpm}
-          initial={{ x: -10, opacity: 0 }}
-          animate={{ x: 0, opacity: 1 }}
-          transition={{ delay: 0.05 }}
-          className="glass-panel p-2.5 rounded-lg border-l-4 border-secondary"
-        >
+        </div>
+        <div className="glass-panel p-2.5 rounded-lg border-l-4 border-secondary">
           <span className="text-[8px] uppercase tracking-widest font-bold text-on-surface-variant block">旋转</span>
           <div className="flex items-baseline gap-0.5">
-            <span className="font-headline text-xl font-bold text-white">{data.rpm ? `${(data.rpm / 1000).toFixed(1)}k` : '--'}</span>
+            <span className="font-headline text-xl font-bold text-white">
+              {data.ballDetected && data.rpm > 0 ? `${(data.rpm / 1000).toFixed(1)}k` : '--'}
+            </span>
             <span className="text-on-surface-variant text-[9px]">RPM</span>
           </div>
-        </motion.div>
+        </div>
       </div>
 
       {/* Right gauges */}
       <div className={`absolute right-3 ${compact ? 'bottom-36' : 'top-1/2 -translate-y-1/2'} flex flex-col gap-3`}>
-        <motion.div
-          key={'rally-' + data.rally}
-          initial={{ x: 10, opacity: 0 }}
-          animate={{ x: 0, opacity: 1 }}
-          className="glass-panel p-2.5 rounded-lg border-r-4 border-tertiary text-right"
-        >
+        <div className="glass-panel p-2.5 rounded-lg border-r-4 border-tertiary text-right">
           <span className="text-[8px] uppercase tracking-widest font-bold text-on-surface-variant block">回合</span>
           <span className="font-headline text-xl font-bold text-white">{data.rally}</span>
-        </motion.div>
-        <motion.div
-          key={'net-' + data.netHeight}
-          initial={{ x: 10, opacity: 0 }}
-          animate={{ x: 0, opacity: 1 }}
-          transition={{ delay: 0.05 }}
-          className="glass-panel p-2.5 rounded-lg border-r-4 border-primary text-right"
-        >
+        </div>
+        <div className="glass-panel p-2.5 rounded-lg border-r-4 border-primary text-right">
           <span className="text-[8px] uppercase tracking-widest font-bold text-on-surface-variant block">净高</span>
           <div className="flex items-baseline justify-end gap-0.5">
-            <span className="font-headline text-xl font-bold text-white">{data.netHeight || '--'}</span>
+            <span className="font-headline text-xl font-bold text-white">
+              {data.ballDetected && data.netHeight > 0 ? data.netHeight : '--'}
+            </span>
             <span className="text-on-surface-variant text-[9px]">CM</span>
           </div>
-        </motion.div>
+        </div>
       </div>
 
-      {/* Bottom center: Accuracy bar */}
-      {data.accuracy > 0 && (
+      {/* Bottom: Accuracy bar - only show after shots detected */}
+      {data.rally > 0 && (
         <div className={`absolute ${compact ? 'bottom-28' : 'bottom-36'} left-1/2 -translate-x-1/2 glass-panel px-4 py-2 rounded-xl flex items-center gap-3 min-w-[200px]`}>
           <div className="flex flex-col flex-1">
             <div className="flex justify-between items-center mb-1">
@@ -123,7 +124,6 @@ export function AnalysisHUD({ data, compact = false }: AnalysisHUDProps) {
             <div className="h-1 w-full bg-surface-variant rounded-full overflow-hidden">
               <motion.div
                 className="h-full bg-primary rounded-full"
-                initial={{ width: 0 }}
                 animate={{ width: `${data.accuracy}%` }}
                 transition={{ duration: 0.3 }}
               />
@@ -135,12 +135,6 @@ export function AnalysisHUD({ data, compact = false }: AnalysisHUDProps) {
           </div>
         </div>
       )}
-
-      {/* Analyzing indicator */}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-2 px-3 py-1 glass-panel rounded-full">
-        <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-        <span className="text-[9px] uppercase tracking-widest font-bold text-primary">AI 分析中</span>
-      </div>
     </div>
   );
 }

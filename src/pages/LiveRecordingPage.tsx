@@ -31,9 +31,10 @@ export function LiveRecordingPage() {
   const chunksRef = useRef<Blob[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Analysis engine - active when recording or playing uploaded video
+  // Analysis engine - pass the actual video element for frame analysis
   const analysisActive = (mode === 'camera' && isRecording) || (mode === 'video' && isPlaying);
-  const { data: analysisData, reset: resetAnalysis } = useVideoAnalysis(analysisActive, 1800);
+  const activeVideoEl = mode === 'camera' ? videoRef.current : uploadVideoRef.current;
+  const { data: analysisData, reset: resetAnalysis } = useVideoAnalysis(analysisActive, activeVideoEl, 300);
 
   // Timer
   useEffect(() => {
