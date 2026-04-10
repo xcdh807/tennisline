@@ -5,7 +5,7 @@ import { BottomNavBar } from '@/src/components/BottomNavBar';
 import { cn } from '@/src/lib/utils';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/src/contexts/AuthContext';
-import { createMatchSession } from '@/src/lib/api';
+import { createMatchSession, uploadVideo } from '@/src/lib/api';
 
 type PageMode = 'idle' | 'camera' | 'video';
 
@@ -148,29 +148,34 @@ export function LiveRecordingPage() {
       recorder.onstop = async () => {
         if (chunksRef.current.length > 0) {
           const blob = new Blob(chunksRef.current, { type: 'video/webm' });
-          // Save session to Supabase
           if (user) {
             try {
+              setSavedMsg('正在保存视频...');
+              const filename = `recording-${Date.now()}.webm`;
+              const videoUrl = await uploadVideo(user.id, blob, filename);
               await createMatchSession({
                 user_id: user.id,
                 type: 'training',
                 title: `录制 ${new Date().toLocaleString('zh-CN')}`,
                 shots: 0,
                 location: '实时录制',
+                video_url: videoUrl,
               });
-              setSavedMsg('录制已保存到历史记录');
+              setSavedMsg('视频已保存到历史记录');
               setTimeout(() => setSavedMsg(''), 3000);
             } catch (err) {
-              console.error('Failed to save session:', err);
+              console.error('Failed to save video:', err);
+              setSavedMsg('保存失败，正在下载到本地...');
+              // Fallback: download locally
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `tennisline-${Date.now()}.webm`;
+              a.click();
+              URL.revokeObjectURL(url);
+              setTimeout(() => setSavedMsg(''), 3000);
             }
           }
-          // Download the recording
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `tennisline-${Date.now()}.webm`;
-          a.click();
-          URL.revokeObjectURL(url);
         }
       };
       mediaRecorderRef.current = recorder;

@@ -59,6 +59,7 @@ export async function createMatchSession(session: {
   speed?: number;
   rpm?: number;
   thumbnail?: string;
+  video_url?: string;
 }) {
   const { data, error } = await supabase
     .from('match_sessions')
@@ -216,4 +217,19 @@ export async function seedDefaultData(userId: string) {
     max_speed: 198,
     avg_accuracy: 82,
   }).eq('id', userId);
+}
+
+// ---- Video Upload ----
+export async function uploadVideo(userId: string, blob: Blob, filename: string): Promise<string> {
+  const filePath = `${userId}/${filename}`;
+  const { error } = await supabase.storage
+    .from('videos')
+    .upload(filePath, blob, {
+      contentType: blob.type || 'video/webm',
+      upsert: true,
+    });
+  if (error) throw error;
+
+  const { data } = supabase.storage.from('videos').getPublicUrl(filePath);
+  return data.publicUrl;
 }

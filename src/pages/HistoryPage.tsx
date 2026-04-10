@@ -1,10 +1,11 @@
-import { Play, Map as MapIcon, MapPin, Bolt, Share2, ChevronRight } from 'lucide-react';
+import { Play, Map as MapIcon, MapPin, Bolt, Share2, ChevronRight, X, Video } from 'lucide-react';
 import { TopAppBar } from '@/src/components/TopAppBar';
 import { BottomNavBar } from '@/src/components/BottomNavBar';
 import { cn } from '@/src/lib/utils';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/src/contexts/AuthContext';
 import { getMatchSessions } from '@/src/lib/api';
+import { motion, AnimatePresence } from 'motion/react';
 
 type FilterType = '全部' | '比赛' | '训练' | '高光';
 
@@ -13,6 +14,8 @@ export function HistoryPage() {
   const [activeFilter, setActiveFilter] = useState<FilterType>('全部');
   const [sessions, setSessions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [playingVideo, setPlayingVideo] = useState<string | null>(null);
+  const playerRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -28,9 +31,54 @@ export function HistoryPage() {
     return map[type] || type;
   };
 
+  const handlePlayClick = (item: any) => {
+    if (item.video_url) {
+      setPlayingVideo(item.video_url);
+    }
+  };
+
+  const closePlayer = () => {
+    if (playerRef.current) {
+      playerRef.current.pause();
+    }
+    setPlayingVideo(null);
+  };
+
   return (
     <div className="min-h-screen bg-surface pb-32">
       <TopAppBar title="历史记录" />
+
+      {/* Video Player Modal */}
+      <AnimatePresence>
+        {playingVideo && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-black flex flex-col"
+          >
+            <div className="flex items-center justify-between px-4 py-3 bg-black/80">
+              <span className="text-white font-headline font-bold text-lg">视频回放</span>
+              <button
+                onClick={closePlayer}
+                className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors active:scale-90"
+              >
+                <X className="w-5 h-5 text-white" />
+              </button>
+            </div>
+            <div className="flex-1 flex items-center justify-center">
+              <video
+                ref={playerRef}
+                src={playingVideo}
+                className="w-full h-full object-contain"
+                controls
+                autoPlay
+                playsInline
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <main className="pt-24 px-6 max-w-4xl mx-auto">
         <section className="flex gap-3 overflow-x-auto pb-8 no-scrollbar">
@@ -63,17 +111,47 @@ export function HistoryPage() {
           <div className="space-y-6">
             {sessions.map((item) => (
               <div key={item.id} className="group relative bg-surface-container rounded-xl overflow-hidden flex flex-col md:flex-row gap-0 transition-all hover:bg-surface-container-high">
-                <div className="relative w-full md:w-64 h-48 md:h-auto overflow-hidden">
-                  <img
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                    src={item.thumbnail || 'https://placehold.co/400x300/001a34/ddffb0?text=TennisLine'}
-                    referrerPolicy="no-referrer"
-                  />
+                {/* Thumbnail / Play area */}
+                <div
+                  className={cn(
+                    "relative w-full md:w-64 h-48 md:h-auto overflow-hidden",
+                    item.video_url ? "cursor-pointer" : ""
+                  )}
+                  onClick={() => handlePlayClick(item)}
+                >
+                  {item.thumbnail ? (
+                    <img
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      src={item.thumbnail}
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-surface-container-highest flex items-center justify-center">
+                      <Video className="w-12 h-12 text-on-surface-variant/30" />
+                    </div>
+                  )}
                   <div className="absolute inset-0 bg-surface-container-lowest/40 flex items-center justify-center">
-                    <div className="w-12 h-12 rounded-full bg-primary-container text-on-primary flex items-center justify-center shadow-2xl">
-                      <Play className="w-6 h-6 fill-on-primary" />
+                    <div className={cn(
+                      "w-12 h-12 rounded-full flex items-center justify-center shadow-2xl transition-transform",
+                      item.video_url
+                        ? "bg-primary-container text-on-primary hover:scale-110"
+                        : "bg-surface-container-highest/60 text-on-surface-variant/40"
+                    )}>
+                      <Play className="w-6 h-6 fill-current" />
                     </div>
                   </div>
+                  {/* Video badge */}
+                  {item.video_url && (
+                    <div className="absolute top-2 left-2 bg-primary/90 backdrop-blur-md rounded px-2 py-0.5 flex items-center gap-1">
+                      <Video className="w-3 h-3 text-on-primary" />
+                      <span className="text-[9px] text-on-primary font-bold">可播放</span>
+                    </div>
+                  )}
+                  {!item.video_url && (
+                    <div className="absolute top-2 left-2 bg-surface-container-highest/70 backdrop-blur-md rounded px-2 py-0.5">
+                      <span className="text-[9px] text-on-surface-variant font-medium">无视频</span>
+                    </div>
+                  )}
                   {item.type === 'match' && (
                     <div className="absolute bottom-2 right-2 bg-black/60 backdrop-blur-md rounded px-2 py-1 flex items-center gap-1">
                       <MapIcon className="w-3.5 h-3.5 text-white" />
@@ -128,13 +206,13 @@ export function HistoryPage() {
                         <>
                           <div className="flex flex-col">
                             <span className="text-xs text-on-surface-variant mb-1">总击球</span>
-                            <span className="font-headline font-bold">{item.shots} <span className="text-[10px] font-normal text-on-surface-variant">SHOTS</span></span>
+                            <span className="font-headline font-bold">{item.shots || 0} <span className="text-[10px] font-normal text-on-surface-variant">SHOTS</span></span>
                           </div>
                           <div className="flex flex-col">
                             <span className="text-xs text-on-surface-variant mb-1">场地位置</span>
                             <span className="text-xs font-medium flex items-center gap-1">
                               <MapPin className="w-3.5 h-3.5" />
-                              {item.location}
+                              {item.location || '--'}
                             </span>
                           </div>
                         </>
@@ -175,13 +253,23 @@ export function HistoryPage() {
                     <div className="flex items-center gap-2">
                       <Bolt className="w-4 h-4 text-primary" />
                       <span className="text-[11px] text-on-surface-variant font-medium">
-                        {item.type === 'highlight' ? '自动剪辑已就绪' : '提升排名 +12 pts'}
+                        {item.video_url ? '视频已保存' : item.type === 'highlight' ? '自动剪辑已就绪' : '提升排名 +12 pts'}
                       </span>
                     </div>
-                    <button className="text-primary text-xs font-bold uppercase tracking-widest flex items-center gap-1 hover:gap-2 transition-all">
-                      {item.type === 'highlight' ? <Share2 className="w-4 h-4" /> : '详细战报'}
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
+                    {item.video_url ? (
+                      <button
+                        onClick={() => handlePlayClick(item)}
+                        className="text-primary text-xs font-bold uppercase tracking-widest flex items-center gap-1 hover:gap-2 transition-all"
+                      >
+                        播放视频
+                        <Play className="w-4 h-4 fill-primary" />
+                      </button>
+                    ) : (
+                      <button className="text-primary text-xs font-bold uppercase tracking-widest flex items-center gap-1 hover:gap-2 transition-all">
+                        {item.type === 'highlight' ? <Share2 className="w-4 h-4" /> : '详细战报'}
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
