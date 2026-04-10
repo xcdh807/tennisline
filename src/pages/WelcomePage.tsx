@@ -68,7 +68,7 @@ export function WelcomePage() {
             </div>
             <h1 className="font-headline text-6xl md:text-7xl font-bold tracking-tighter leading-none text-white">
               口袋里的<br/>
-              <span className="text-transparent bg-clip-text kinetic-gradient">鹰眼</span>
+              <span className="kinetic-gradient-text">鹰眼</span>
             </h1>
             <p className="text-on-surface-variant text-lg max-w-[80%] leading-relaxed font-light">
               专业级网球轨迹追踪与数据分析，让每一分都有迹可循。

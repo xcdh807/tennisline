@@ -60,6 +60,13 @@
     background: linear-gradient(135deg, #ddffb0 0%, #a1fe00 100%);
   }
 
+  .kinetic-gradient-text {
+    background: linear-gradient(135deg, #ddffb0 0%, #a1fe00 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
