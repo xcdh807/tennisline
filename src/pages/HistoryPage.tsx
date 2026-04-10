@@ -240,10 +240,10 @@ export function HistoryPage() {
                   {/* Delete button */}
                   <button
                     onClick={(e) => { e.stopPropagation(); setDeleteTarget(item); }}
-                    className="absolute top-4 right-4 w-8 h-8 rounded-lg bg-surface-container-highest/60 flex items-center justify-center text-on-surface-variant/50 hover:text-error hover:bg-error/10 transition-all opacity-0 group-hover:opacity-100 active:scale-90 z-10"
+                    className="absolute top-4 right-4 w-9 h-9 rounded-lg bg-error/10 border border-error/20 flex items-center justify-center text-error hover:bg-error/20 active:scale-90 transition-all z-10"
                     title="删除记录"
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Trash2 className="w-4.5 h-4.5" />
                   </button>
 
                   <div className="flex justify-between items-start mb-4 pr-10">
