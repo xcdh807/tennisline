@@ -4,27 +4,45 @@ import { TopAppBar } from '@/src/components/TopAppBar';
 import { BottomNavBar } from '@/src/components/BottomNavBar';
 import { useAuth } from '@/src/contexts/AuthContext';
 import { getTrainingProgress } from '@/src/lib/api';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 const TRAINING_VIDEOS = [
   {
     id: 'v1',
-    title: '如何捕捉 "擦边球" 瞬间',
-    duration: '12:45',
-    views: '2.4k',
-    thumbnail: 'https://lh3.googleusercontent.com/aida-public/AB6AXuCUDxAqjE_bVoVrPcCZs5qPUZBCatiDwtGk-oWBv23T8l6P5F6kbUS_DZQN6BIiebP8JBAOawhWvdiidlgQxEsd2_G1CsjQeTy__J3Cip4mY2RCMEEkoI4mS9Scg3RUG68eLo3GKwf3Un0zhb0s2ZALCuCUwTtw95Z3M2Pcufwqf6EHnioo5Fz6Ikw6ocTCbWWcK1iTeNS8eq8Rt8beONs-5vUWKP0dD-LzE7KTpRTYS0h5gF4m1lPu3YzE9b7B-4xuyL-yUZ2ioog',
-    description: '通过高速摄像分析，掌握判断擦边球的核心技巧。学习如何在比赛中快速识别球的落点，提升临场判断能力。',
-    chapters: ['网球落点基础知识 (0:00)', '高速摄像回放分析 (3:20)', '擦边球识别技巧 (6:45)', '实战练习指南 (10:00)'],
+    title: '正手击球技术详解',
+    duration: '10:03',
+    views: '580k',
+    youtubeId: 'RfMsYkbPBHE',
+    thumbnail: 'https://img.youtube.com/vi/RfMsYkbPBHE/hqdefault.jpg',
+    description: '从零开始学习正手击球，包括握拍方式、站位、引拍、击球点和随挥动作的完整分解教学。',
   },
   {
     id: 'v2',
-    title: '职业视角：底线判罚心理学',
-    duration: '08:30',
-    views: '1.8k',
-    thumbnail: 'https://lh3.googleusercontent.com/aida-public/AB6AXuB7U4N863nMvhBPPomX6JjBEb7BDWLJPnPCZ3XRVnF-9EodutyME02zP5jBr4bJhwUzwQxl0qLUihe9eEqFyOAK5FxiQKHv83crrFE7UDfvpuJMvlPQLt1mPPgvXSDNCXuaCufgpF8yednaz03uottkEVFsVTW7x4peDJihFEe3XKhTSAWChoOoTk9zWir3TcoeKisZePAsd_tmFiALN9yyme3CqqDW9dI48XGb7qJdriU4et6o6zSvWszVUbrrdKgR88rUv_GPFCY',
-    description: '深入了解职业裁判的判罚思维，学习底线球判断中的心理学因素。包含多场大满贯经典案例的分析。',
-    chapters: ['判罚心理学入门 (0:00)', '大满贯案例分析 (2:30)', '视觉盲区与误判 (5:15)', '训练你的判断力 (7:00)'],
+    title: '反手切球与上旋球教学',
+    duration: '8:45',
+    views: '320k',
+    youtubeId: 'rOAHm5SLQCQ',
+    thumbnail: 'https://img.youtube.com/vi/rOAHm5SLQCQ/hqdefault.jpg',
+    description: '掌握单手和双手反手击球技巧，学习如何打出精准的切球和上旋球。',
+  },
+  {
+    id: 'v3',
+    title: '发球技术：从平击到旋转',
+    duration: '12:30',
+    views: '450k',
+    youtubeId: '2M96PpnYJ34',
+    thumbnail: 'https://img.youtube.com/vi/2M96PpnYJ34/hqdefault.jpg',
+    description: '系统讲解一发和二发的技术要点，包含平击发球、侧旋发球和上旋发球的动作分解。',
+  },
+  {
+    id: 'v4',
+    title: '网前截击与高压球技巧',
+    duration: '7:20',
+    views: '210k',
+    youtubeId: 'CAkbfLsGOSM',
+    thumbnail: 'https://img.youtube.com/vi/CAkbfLsGOSM/hqdefault.jpg',
+    description: '提升网前能力，学习正反手截击的脚步移动和拍面控制，以及高压球的击球时机。',
   },
 ];
 
@@ -35,6 +53,7 @@ export function TrainingPage() {
   const [showRules, setShowRules] = useState(false);
   const [activeVideo, setActiveVideo] = useState<typeof TRAINING_VIDEOS[0] | null>(null);
   const [showAllVideos, setShowAllVideos] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(2);
 
   useEffect(() => {
     if (!user) return;
@@ -108,7 +127,7 @@ export function TrainingPage() {
         )}
       </AnimatePresence>
 
-      {/* Video Detail Modal */}
+      {/* Video Player Modal - YouTube Embed */}
       <AnimatePresence>
         {activeVideo && (
           <motion.div
@@ -121,15 +140,16 @@ export function TrainingPage() {
               className="bg-surface-container rounded-t-2xl md:rounded-2xl w-full max-w-lg shadow-2xl border border-outline-variant/10 max-h-[90vh] overflow-y-auto"
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Video thumbnail as player placeholder */}
-              <div className="relative aspect-video">
-                <img src={activeVideo.thumbnail} className="w-full h-full object-cover rounded-t-2xl" referrerPolicy="no-referrer" />
-                <div className="absolute inset-0 bg-black/30 flex items-center justify-center rounded-t-2xl">
-                  <div className="w-16 h-16 bg-primary/90 text-on-primary rounded-full flex items-center justify-center shadow-2xl">
-                    <Play className="w-8 h-8 fill-on-primary ml-1" />
-                  </div>
-                </div>
-                <button onClick={() => setActiveVideo(null)} className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/50 flex items-center justify-center text-white"><X className="w-4 h-4" /></button>
+              {/* YouTube Player */}
+              <div className="relative aspect-video rounded-t-2xl overflow-hidden bg-black">
+                <iframe
+                  src={`https://www.youtube.com/embed/${activeVideo.youtubeId}?autoplay=1&rel=0&modestbranding=1`}
+                  className="w-full h-full"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                  title={activeVideo.title}
+                />
+                <button onClick={() => setActiveVideo(null)} className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/60 flex items-center justify-center text-white hover:bg-black/80 active:scale-90 z-10"><X className="w-4 h-4" /></button>
               </div>
 
               <div className="p-6 space-y-4">
@@ -140,21 +160,7 @@ export function TrainingPage() {
                     <span className="flex items-center gap-1"><Eye className="w-3 h-3" /> {activeVideo.views} 次播放</span>
                   </div>
                 </div>
-
                 <p className="text-sm text-on-surface-variant leading-relaxed">{activeVideo.description}</p>
-
-                <div>
-                  <h4 className="text-xs font-bold text-on-surface-variant uppercase tracking-widest mb-2">章节目录</h4>
-                  <div className="space-y-1">
-                    {activeVideo.chapters.map((ch, i) => (
-                      <button key={i} className="w-full text-left px-3 py-2 rounded-lg hover:bg-surface-container-high transition-colors flex items-center gap-3 text-sm">
-                        <span className="w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center shrink-0">{i + 1}</span>
-                        <span className="text-on-surface">{ch}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
                 <div className="flex gap-3 pt-2">
                   <button onClick={() => { setActiveVideo(null); navigate('/record'); }} className="flex-1 py-3 rounded-lg bg-gradient-to-br from-primary to-primary-container text-on-primary font-bold text-sm flex items-center justify-center gap-2 active:scale-95 transition-all">
                     <Play className="w-4 h-4 fill-on-primary" /> 开始练习
@@ -202,14 +208,21 @@ export function TrainingPage() {
               <h3 className="font-headline text-2xl font-bold tracking-tight">技巧讲解</h3>
               <p className="text-on-surface-variant text-sm">专家级视频分析，拆解极限定影判罚。</p>
             </div>
-            <button onClick={() => setShowAllVideos(!showAllVideos)} className="text-primary text-xs font-bold uppercase tracking-widest flex items-center gap-1 hover:underline active:scale-95">
+            <button onClick={() => { setShowAllVideos(!showAllVideos); setVisibleCount(showAllVideos ? 2 : TRAINING_VIDEOS.length); }} className="text-primary text-xs font-bold uppercase tracking-widest flex items-center gap-1 hover:underline active:scale-95">
               {showAllVideos ? '收起' : '全部视频'} <ChevronRight className={`w-3 h-3 transition-transform ${showAllVideos ? 'rotate-90' : ''}`} />
             </button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {TRAINING_VIDEOS.map((video) => (
-              <div key={video.id} onClick={() => setActiveVideo(video)} className="bg-surface-container rounded-xl overflow-hidden hover:bg-surface-bright transition-colors cursor-pointer group active:scale-[0.98]">
+            {TRAINING_VIDEOS.slice(0, visibleCount).map((video) => (
+              <motion.div
+                key={video.id}
+                layout
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                onClick={() => setActiveVideo(video)}
+                className="bg-surface-container rounded-xl overflow-hidden hover:bg-surface-bright transition-colors cursor-pointer group active:scale-[0.98]"
+              >
                 <div className="aspect-video relative overflow-hidden">
                   <img alt={video.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" src={video.thumbnail} referrerPolicy="no-referrer" />
                   <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
@@ -226,23 +239,9 @@ export function TrainingPage() {
                     <span className="flex items-center gap-1"><Eye className="w-3 h-3" /> {video.views} 次播放</span>
                   </div>
                 </div>
-              </div>
+              </motion.div>
             ))}
           </div>
-
-          {/* Additional videos shown when "all" is clicked */}
-          <AnimatePresence>
-            {showAllVideos && (
-              <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                <div className="bg-surface-container-low rounded-xl p-6 text-center space-y-3">
-                  <p className="text-on-surface-variant text-sm">更多训练视频即将上线，敬请期待</p>
-                  <button onClick={() => navigate('/record')} className="px-6 py-2 bg-primary/10 text-primary rounded-lg text-sm font-bold border border-primary/20 hover:bg-primary/20 active:scale-95 transition-all">
-                    先去录制练习视频
-                  </button>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
         </section>
 
         {/* Practice Progress */}
