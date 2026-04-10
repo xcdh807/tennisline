@@ -70,7 +70,20 @@ export async function createMatchSession(session: {
   return data;
 }
 
-export async function deleteMatchSession(sessionId: string) {
+export async function deleteMatchSession(sessionId: string, videoUrl?: string) {
+  // Delete video from storage if exists
+  if (videoUrl) {
+    try {
+      const url = new URL(videoUrl);
+      // Extract path after /object/public/videos/
+      const match = url.pathname.match(/\/object\/public\/videos\/(.+)/);
+      if (match) {
+        await supabase.storage.from('videos').remove([decodeURIComponent(match[1])]);
+      }
+    } catch {
+      // Ignore storage deletion errors
+    }
+  }
   const { error } = await supabase
     .from('match_sessions')
     .delete()

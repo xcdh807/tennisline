@@ -1,10 +1,10 @@
-import { Play, Map as MapIcon, MapPin, Bolt, Share2, ChevronRight, X, Video } from 'lucide-react';
+import { Play, Map as MapIcon, MapPin, Bolt, Share2, ChevronRight, X, Video, Trash2 } from 'lucide-react';
 import { TopAppBar } from '@/src/components/TopAppBar';
 import { BottomNavBar } from '@/src/components/BottomNavBar';
 import { cn } from '@/src/lib/utils';
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/src/contexts/AuthContext';
-import { getMatchSessions } from '@/src/lib/api';
+import { getMatchSessions, deleteMatchSession } from '@/src/lib/api';
 import { motion, AnimatePresence } from 'motion/react';
 
 type FilterType = '全部' | '比赛' | '训练' | '高光';
@@ -15,6 +15,8 @@ export function HistoryPage() {
   const [sessions, setSessions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [playingVideo, setPlayingVideo] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<any>(null);
+  const [deleting, setDeleting] = useState(false);
   const playerRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -42,6 +44,20 @@ export function HistoryPage() {
       playerRef.current.pause();
     }
     setPlayingVideo(null);
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await deleteMatchSession(deleteTarget.id, deleteTarget.video_url || undefined);
+      setSessions(prev => prev.filter(s => s.id !== deleteTarget.id));
+    } catch (err) {
+      console.error('Delete failed:', err);
+    } finally {
+      setDeleting(false);
+      setDeleteTarget(null);
+    }
   };
 
   return (
@@ -76,6 +92,66 @@ export function HistoryPage() {
                 playsInline
               />
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Delete Confirmation Modal */}
+      <AnimatePresence>
+        {deleteTarget && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center px-6"
+            onClick={() => !deleting && setDeleteTarget(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-surface-container rounded-2xl p-6 max-w-sm w-full shadow-2xl border border-outline-variant/10"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-full bg-error/10 flex items-center justify-center">
+                  <Trash2 className="w-5 h-5 text-error" />
+                </div>
+                <h3 className="font-headline text-lg font-bold text-white">删除记录</h3>
+              </div>
+              <p className="text-on-surface-variant text-sm mb-2">
+                确定要删除 <span className="text-white font-medium">「{deleteTarget.title}」</span> 吗？
+              </p>
+              {deleteTarget.video_url && (
+                <p className="text-on-surface-variant/60 text-xs mb-6">关联的视频文件也会被一并删除，此操作不可撤销。</p>
+              )}
+              {!deleteTarget.video_url && (
+                <p className="text-on-surface-variant/60 text-xs mb-6">此操作不可撤销。</p>
+              )}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setDeleteTarget(null)}
+                  disabled={deleting}
+                  className="flex-1 h-11 rounded-lg bg-surface-container-high text-on-surface font-bold text-sm hover:bg-surface-bright transition-colors disabled:opacity-50"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  className="flex-1 h-11 rounded-lg bg-error text-white font-bold text-sm hover:bg-error/90 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {deleting ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4" />
+                      删除
+                    </>
+                  )}
+                </button>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -160,8 +236,17 @@ export function HistoryPage() {
                   )}
                 </div>
 
-                <div className="p-6 flex-1 flex flex-col justify-between">
-                  <div className="flex justify-between items-start mb-4">
+                <div className="p-6 flex-1 flex flex-col justify-between relative">
+                  {/* Delete button */}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setDeleteTarget(item); }}
+                    className="absolute top-4 right-4 w-8 h-8 rounded-lg bg-surface-container-highest/60 flex items-center justify-center text-on-surface-variant/50 hover:text-error hover:bg-error/10 transition-all opacity-0 group-hover:opacity-100 active:scale-90 z-10"
+                    title="删除记录"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+
+                  <div className="flex justify-between items-start mb-4 pr-10">
                     <div>
                       <div className="flex items-center gap-2 mb-1">
                         <span className={cn(
