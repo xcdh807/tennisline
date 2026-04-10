@@ -1,0 +1,5 @@
+{
+  "name": "TennisLine",
+  "description": "AI-powered tennis trajectory tracking and performance analysis. Professional-grade Hawk-Eye in your pocket.",
+  "requestFramePermissions": ["camera"]
+}

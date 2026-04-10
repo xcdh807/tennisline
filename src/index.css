@@ -1,0 +1,70 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700;900&family=Noto+Sans+SC:wght@300;400;500;700;900&display=swap');
+
+@theme {
+  --font-headline: "Space Grotesk", "Noto Sans SC", sans-serif;
+  --font-body: "Inter", "Noto Sans SC", sans-serif;
+
+  --color-primary: #ddffb0;
+  --color-primary-container: #a1fe00;
+  --color-on-primary: #3e6600;
+  --color-on-primary-container: #385d00;
+  
+  --color-secondary: #bcd3f4;
+  --color-secondary-container: #324863;
+  --color-on-secondary: #334964;
+  
+  --color-tertiary: #ff7162;
+  --color-tertiary-container: #f9362c;
+  --color-on-tertiary: #4a0001;
+
+  --color-surface: #000f21;
+  --color-surface-bright: #002d52;
+  --color-surface-dim: #000f21;
+  --color-surface-variant: #002748;
+  --color-on-surface: #d7e7ff;
+  --color-on-surface-variant: #96adcc;
+  
+  --color-surface-container: #001a34;
+  --color-surface-container-low: #001429;
+  --color-surface-container-high: #00213e;
+  --color-surface-container-highest: #002748;
+  
+  --color-outline: #617794;
+  --color-outline-variant: #334964;
+
+  --color-error: #ff7351;
+  --color-error-container: #b92902;
+  --color-on-error: #450900;
+
+  --radius-lg: 0.25rem;
+  --radius-xl: 0.5rem;
+  --radius-full: 0.75rem;
+}
+
+@layer base {
+  body {
+    @apply bg-surface text-on-surface font-body;
+    min-height: 100dvh;
+  }
+}
+
+@layer utilities {
+  .glass-panel {
+    background: rgba(0, 39, 72, 0.6);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+  
+  .kinetic-gradient {
+    background: linear-gradient(135deg, #ddffb0 0%, #a1fe00 100%);
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
