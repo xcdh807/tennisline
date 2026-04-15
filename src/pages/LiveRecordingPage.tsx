@@ -23,6 +23,9 @@ export function LiveRecordingPage() {
   const [savedMsg, setSavedMsg] = useState('');
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [videoProgress, setVideoProgress] = useState(0);
+  const [videoDuration, setVideoDuration] = useState(0);
+  const [videoCurrentTime, setVideoCurrentTime] = useState(0);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const uploadVideoRef = useRef<HTMLVideoElement>(null);
@@ -192,10 +195,31 @@ export function LiveRecordingPage() {
   const togglePlayPause = () => {
     if (!uploadVideoRef.current) return;
     if (uploadVideoRef.current.paused) {
+      // If video ended, reset to beginning and reset analysis
+      if (uploadVideoRef.current.ended) {
+        uploadVideoRef.current.currentTime = 0;
+        resetAnalysis();
+      }
       uploadVideoRef.current.play();
     } else {
       uploadVideoRef.current.pause();
     }
+  };
+
+  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!uploadVideoRef.current) return;
+    const time = parseFloat(e.target.value);
+    uploadVideoRef.current.currentTime = time;
+    setVideoCurrentTime(time);
+    setVideoProgress(videoDuration > 0 ? (time / videoDuration) * 100 : 0);
+    // Reset analysis on manual seek since trajectory is no longer continuous
+    resetAnalysis();
+  };
+
+  const formatVideoTime = (s: number) => {
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2, '0')}`;
   };
 
   useEffect(() => {
@@ -246,55 +270,87 @@ export function LiveRecordingPage() {
   // ========== VIDEO UPLOAD MODE ==========
   if (mode === 'video') {
     return (
-      <div className="bg-surface text-on-surface font-body overflow-hidden h-screen w-full relative">
-        <div className="fixed inset-0 z-0 bg-black flex items-center justify-center">
+      <div className="bg-black text-on-surface font-body h-screen w-full relative flex flex-col">
+        {/* Top Bar */}
+        <header className="relative z-50 bg-black/80 backdrop-blur-xl flex justify-between items-center px-4 py-3 shrink-0">
+          <div className="flex items-center gap-3">
+            <button onClick={closeVideo} className="text-white hover:text-primary transition-colors active:scale-90">
+              <ChevronLeft className="w-6 h-6" />
+            </button>
+            <div className="flex flex-col">
+              <span className="font-headline font-bold tracking-tight text-lg text-white italic">视频分析</span>
+              <div className="flex items-center gap-2 text-[9px] uppercase tracking-widest font-semibold text-on-surface-variant">
+                <span className={cn("w-1.5 h-1.5 rounded-full", isPlaying ? "bg-primary animate-pulse" : "bg-outline")} />
+                {isPlaying ? '网球追踪中' : uploadVideoRef.current?.ended ? '播放结束' : '已暂停'}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-[10px] text-on-surface-variant">
+            <span>检测 {analysisData.detectedFrames}/{analysisData.frameCount}</span>
+          </div>
+        </header>
+
+        {/* Video container - fills available space */}
+        <div className="flex-1 relative overflow-hidden bg-black">
           <video
             ref={uploadVideoRef}
             src={videoUrl!}
-            className="w-full h-full object-contain"
+            className="absolute inset-0 w-full h-full object-contain"
             playsInline
             onLoadedData={() => {
-              // Ensure the video element is available for analysis
               if (uploadVideoRef.current) {
                 setActiveVideoEl(uploadVideoRef.current);
+                setVideoDuration(uploadVideoRef.current.duration || 0);
+              }
+            }}
+            onTimeUpdate={() => {
+              if (uploadVideoRef.current) {
+                const ct = uploadVideoRef.current.currentTime;
+                const dur = uploadVideoRef.current.duration || 1;
+                setVideoCurrentTime(ct);
+                setVideoProgress((ct / dur) * 100);
               }
             }}
             onPlay={() => setIsPlaying(true)}
             onPause={() => setIsPlaying(false)}
             onEnded={() => setIsPlaying(false)}
           />
+
+          {/* Analysis HUD overlay on top of video */}
+          <AnalysisHUD data={analysisData} compact />
         </div>
 
-        {/* Analysis HUD overlay */}
-        <AnalysisHUD data={analysisData} compact />
-
-        {/* Top Bar */}
-        <header className="fixed top-0 w-full z-50 bg-transparent backdrop-blur-xl flex justify-between items-center px-6 py-4">
-          <div className="flex items-center gap-4">
-            <button onClick={closeVideo} className="text-white hover:text-primary transition-colors">
-              <ChevronLeft className="w-6 h-6" />
-            </button>
-            <div className="flex flex-col">
-              <span className="font-headline font-bold tracking-tight text-xl text-white italic">视频分析</span>
-              <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest font-semibold text-on-surface-variant">
-                <span className={cn("w-1.5 h-1.5 rounded-full", isPlaying ? "bg-primary animate-pulse" : "bg-outline")} />
-                {isPlaying ? 'AI 分析中' : '已暂停'}
-              </div>
-            </div>
+        {/* Progress bar + time */}
+        <div className="relative z-50 bg-black/90 px-4 pt-3 pb-1 shrink-0">
+          <input
+            type="range"
+            min={0}
+            max={videoDuration || 0}
+            step={0.1}
+            value={videoCurrentTime}
+            onChange={handleSeek}
+            className="w-full h-1.5 appearance-none bg-surface-variant/30 rounded-full outline-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:shadow-[0_0_8px_rgba(161,254,0,0.5)]"
+            style={{
+              background: `linear-gradient(to right, #a1fe00 ${videoProgress}%, rgba(97,119,148,0.3) ${videoProgress}%)`,
+            }}
+          />
+          <div className="flex justify-between text-[10px] text-on-surface-variant mt-1 font-mono">
+            <span>{formatVideoTime(videoCurrentTime)}</span>
+            <span>{formatVideoTime(videoDuration)}</span>
           </div>
-        </header>
+        </div>
 
-        {/* Controls */}
-        <div className="fixed bottom-0 left-0 right-0 z-50 pb-safe">
-          <div className="flex items-center justify-center gap-8 py-6 mb-16">
-            <button onClick={closeVideo} className="glass-panel w-14 h-14 rounded-full flex items-center justify-center text-white hover:bg-white/10 transition-colors active:scale-90">
-              <X className="w-6 h-6" />
+        {/* Bottom controls */}
+        <div className="relative z-50 bg-black/90 shrink-0 pb-safe">
+          <div className="flex items-center justify-center gap-6 py-3 mb-16">
+            <button onClick={closeVideo} className="glass-panel w-12 h-12 rounded-full flex items-center justify-center text-white hover:bg-white/10 active:scale-90">
+              <X className="w-5 h-5" />
             </button>
-            <button onClick={togglePlayPause} className={cn("w-20 h-20 rounded-full flex items-center justify-center shadow-[0_10px_30px_rgba(161,254,0,0.3)] active:scale-90 transition-transform", isPlaying ? "bg-white/20 backdrop-blur-xl border-2 border-primary" : "kinetic-gradient")}>
-              {isPlaying ? <Pause className="w-7 h-7 text-primary" /> : <Play className="w-7 h-7 fill-on-primary text-on-primary ml-1" />}
+            <button onClick={togglePlayPause} className={cn("w-16 h-16 rounded-full flex items-center justify-center shadow-[0_8px_24px_rgba(161,254,0,0.3)] active:scale-90 transition-transform", isPlaying ? "bg-white/15 backdrop-blur-xl border-2 border-primary" : "kinetic-gradient")}>
+              {isPlaying ? <Pause className="w-6 h-6 text-primary" /> : <Play className="w-6 h-6 fill-on-primary text-on-primary ml-0.5" />}
             </button>
-            <button onClick={() => { closeVideo(); fileInputRef.current?.click(); }} className="glass-panel w-14 h-14 rounded-full flex items-center justify-center text-white hover:bg-white/10 transition-colors active:scale-90">
-              <Upload className="w-6 h-6" />
+            <button onClick={() => { closeVideo(); setTimeout(() => fileInputRef.current?.click(), 100); }} className="glass-panel w-12 h-12 rounded-full flex items-center justify-center text-white hover:bg-white/10 active:scale-90">
+              <Upload className="w-5 h-5" />
             </button>
           </div>
           <BottomNavBar />

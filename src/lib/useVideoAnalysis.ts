@@ -48,21 +48,33 @@ class FrameBuffer {
    * 3-frame differencing: detects pixels that changed between frame N-2→N-1 AND N-1→N.
    * This isolates truly moving objects and removes static noise.
    */
-  getMotionMask(threshold: number = 20): Uint8Array | null {
-    if (this.frames.length < 3) return null;
-    const f0 = this.frames[0], f1 = this.frames[1], f2 = this.frames[2];
+  getMotionMask(threshold: number = 12): Uint8Array | null {
+    if (this.frames.length < 2) return null;
+    const len = this.frames.length;
+    const fCurr = this.frames[len - 1];
+    const fPrev = this.frames[len - 2];
+    const fOld = len >= 3 ? this.frames[len - 3] : null;
     const mask = new Uint8Array(this.w * this.h);
     for (let i = 0; i < this.w * this.h; i++) {
-      const d1 = Math.abs(f1[i] - f0[i]);
-      const d2 = Math.abs(f2[i] - f1[i]);
-      // Both transitions must show change — real motion
-      mask[i] = (d1 > threshold && d2 > threshold) ? 255 : 0;
+      const d1 = Math.abs(fCurr[i] - fPrev[i]);
+      // 2-frame diff: current vs previous (catches fast objects)
+      if (d1 > threshold) {
+        mask[i] = 255;
+        continue;
+      }
+      // 3-frame diff: both transitions changed (catches slower objects reliably)
+      if (fOld) {
+        const d2 = Math.abs(fPrev[i] - fOld[i]);
+        if (d1 > threshold * 0.7 && d2 > threshold * 0.7) {
+          mask[i] = 255;
+        }
+      }
     }
     return mask;
   }
 
   getLatestColor(): ImageData | null { return null; } // unused placeholder
-  ready() { return this.frames.length >= 3; }
+  ready() { return this.frames.length >= 2; }
 }
 
 // ---- Morphology ----
@@ -145,22 +157,26 @@ function findBlobs(mask: Uint8Array, w: number, h: number): Blob[] {
 
 // ---- Color verification ----
 function colorScore(imageData: ImageData, cx: number, cy: number, w: number, h: number): number {
-  // Sample 5x5 area around the center
   const d = imageData.data;
   let score = 0, samples = 0;
-  for (let dy = -2; dy <= 2; dy++) {
-    for (let dx = -2; dx <= 2; dx++) {
+  // Sample 7x7 area
+  for (let dy = -3; dy <= 3; dy++) {
+    for (let dx = -3; dx <= 3; dx++) {
       const x = cx + dx, y = cy + dy;
       if (x < 0 || x >= w || y < 0 || y >= h) continue;
       const i = (y * w + x) * 4;
       const r = d[i], g = d[i + 1], b = d[i + 2];
       samples++;
-      // Yellow-green: g is highest or close to r, b is lowest
-      if (g > 80 && g >= b && (g - b) > 15) score += 2;
-      // Bright pixel (tennis ball is bright)
-      if (r + g + b > 350) score += 1;
-      // Yellow-ish
-      if (r > 100 && g > 100 && b < r && b < g) score += 2;
+      // Bright pixel — tennis ball is always bright
+      const brightness = r + g + b;
+      if (brightness > 300) score += 1;
+      if (brightness > 400) score += 1;
+      // Yellow-green: g >= b, r moderate
+      if (g > 80 && g >= b && (g - b) > 10) score += 1.5;
+      // Yellow/orange range
+      if (r > 120 && g > 100 && b < Math.max(r, g) * 0.8) score += 1;
+      // White/bright (overexposed tennis ball)
+      if (r > 180 && g > 180 && b > 120) score += 0.5;
     }
   }
   return samples > 0 ? score / samples : 0;
@@ -230,7 +246,7 @@ class BallTracker {
       if (score > bestScore) { bestScore = score; best = b; }
     }
 
-    if (!best || bestScore < 3) {
+    if (!best || bestScore < 2) {
       this.lostCount++;
       return null;
     }
