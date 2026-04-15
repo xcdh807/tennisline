@@ -31,10 +31,23 @@ export function LiveRecordingPage() {
   const chunksRef = useRef<Blob[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Track the actual video element for analysis (refs are null during render)
+  const [activeVideoEl, setActiveVideoEl] = useState<HTMLVideoElement | null>(null);
+
   // Analysis engine - pass the actual video element for frame analysis
   const analysisActive = (mode === 'camera' && isRecording) || (mode === 'video' && isPlaying);
-  const activeVideoEl = mode === 'camera' ? videoRef.current : uploadVideoRef.current;
-  const { data: analysisData, reset: resetAnalysis } = useVideoAnalysis(analysisActive, activeVideoEl, 300);
+  const { data: analysisData, reset: resetAnalysis } = useVideoAnalysis(analysisActive, activeVideoEl, 200);
+
+  // Keep activeVideoEl in sync with mode
+  useEffect(() => {
+    if (mode === 'camera' && videoRef.current) {
+      setActiveVideoEl(videoRef.current);
+    } else if (mode === 'video' && uploadVideoRef.current) {
+      setActiveVideoEl(uploadVideoRef.current);
+    } else {
+      setActiveVideoEl(null);
+    }
+  }, [mode, isPlaying, isRecording]);
 
   // Timer
   useEffect(() => {
@@ -180,10 +193,8 @@ export function LiveRecordingPage() {
     if (!uploadVideoRef.current) return;
     if (uploadVideoRef.current.paused) {
       uploadVideoRef.current.play();
-      setIsPlaying(true);
     } else {
       uploadVideoRef.current.pause();
-      setIsPlaying(false);
     }
   };
 
@@ -237,7 +248,21 @@ export function LiveRecordingPage() {
     return (
       <div className="bg-surface text-on-surface font-body overflow-hidden h-screen w-full relative">
         <div className="fixed inset-0 z-0 bg-black flex items-center justify-center">
-          <video ref={uploadVideoRef} src={videoUrl!} className="w-full h-full object-contain" playsInline onEnded={() => setIsPlaying(false)} />
+          <video
+            ref={uploadVideoRef}
+            src={videoUrl!}
+            className="w-full h-full object-contain"
+            playsInline
+            onLoadedData={() => {
+              // Ensure the video element is available for analysis
+              if (uploadVideoRef.current) {
+                setActiveVideoEl(uploadVideoRef.current);
+              }
+            }}
+            onPlay={() => setIsPlaying(true)}
+            onPause={() => setIsPlaying(false)}
+            onEnded={() => setIsPlaying(false)}
+          />
         </div>
 
         {/* Analysis HUD overlay */}
@@ -284,7 +309,9 @@ export function LiveRecordingPage() {
   return (
     <div className="bg-surface text-on-surface font-body overflow-hidden h-screen w-full relative">
       <div className="fixed inset-0 z-0 bg-black">
-        <video ref={videoRef} className="w-full h-full object-cover" autoPlay playsInline muted />
+        <video ref={videoRef} className="w-full h-full object-cover" autoPlay playsInline muted
+          onLoadedData={() => { if (videoRef.current) setActiveVideoEl(videoRef.current); }}
+        />
         {/* Trajectory overlay */}
         <AnimatePresence>
           {isRecording && (

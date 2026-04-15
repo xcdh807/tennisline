@@ -57,8 +57,8 @@ function rgbToHsv(r: number, g: number, b: number): [number, number, number] {
 
 /**
  * Create HSV mask matching tennis ball color.
- * From process_all_mov.py: H[30,37], S[57,122], V[230,255]
- * Extended slightly for browser video color differences: H[25,45], S[40,150], V[180,255]
+ * Tennis balls appear yellow-green but vary hugely under different lighting,
+ * compression, and white balance. We use multiple detection ranges.
  */
 function createTennisBallMask(
   imageData: ImageData,
@@ -69,9 +69,23 @@ function createTennisBallMask(
   const d = imageData.data;
   for (let i = 0; i < width * height; i++) {
     const idx = i * 4;
-    const [h, s, v] = rgbToHsv(d[idx], d[idx + 1], d[idx + 2]);
-    // Wider range than Python to account for video compression artifacts
-    if (h >= 25 && h <= 45 && s >= 40 && s <= 150 && v >= 180) {
+    const r = d[idx], g = d[idx + 1], b = d[idx + 2];
+    const [h, s, v] = rgbToHsv(r, g, b);
+
+    // Range 1: Classic bright tennis ball (original Python range, widened)
+    // H[20-50], S[30-200], V[150-255]
+    const range1 = h >= 20 && h <= 50 && s >= 30 && s <= 200 && v >= 150;
+
+    // Range 2: Tennis ball under artificial/indoor light (more green-ish)
+    // H[15-60], S[50-255], V[120-255]
+    const range2 = h >= 15 && h <= 60 && s >= 50 && v >= 120;
+
+    // Range 3: Direct RGB check — tennis ball is characteristically
+    // high green, medium-high red, low blue
+    const rgbCheck = g > 120 && g > b * 1.3 && r > 80 && r > b * 1.1 && b < 150
+      && (g - b) > 40;
+
+    if (range1 || range2 || rgbCheck) {
       mask[i] = 255;
     }
   }
@@ -219,10 +233,9 @@ class TennisBallTracker {
     let bestScore = 0;
 
     for (const c of contours) {
-      // Area filter: 10 < area < 500 (from Python)
-      // Scale for analysis resolution vs original — we use 320x240
-      const minArea = 3;
-      const maxArea = 800;
+      // Area filter — widened for various video resolutions and distances
+      const minArea = 2;
+      const maxArea = 1500;
       if (c.area <= minArea || c.area >= maxArea) continue;
 
       // Aspect ratio filter: 0.5 < ratio < 1.5 (from Python)
