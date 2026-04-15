@@ -26,10 +26,11 @@ export function AnalysisHUD({ data, compact = false }: AnalysisHUDProps) {
         <span className={`text-[9px] uppercase tracking-widest font-bold ${data.ballDetected ? 'text-primary' : 'text-on-surface-variant'}`}>
           {data.ballDetected ? '网球追踪中' : '等待检测...'}
         </span>
-        {data.motionLevel > 0 && (
+        {data.frameCount > 0 && (
           <div className="flex items-center gap-1 ml-1 pl-2 border-l border-outline-variant/30">
-            <Activity className="w-3 h-3 text-on-surface-variant" />
-            <span className="text-[9px] text-on-surface-variant">{data.motionLevel}%</span>
+            <span className="text-[9px] text-on-surface-variant">
+              {data.detectedFrames}/{data.frameCount} 帧
+            </span>
           </div>
         )}
       </div>
