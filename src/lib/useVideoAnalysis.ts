@@ -17,349 +17,305 @@ export interface AnalysisData {
   detectedFrames: number;
 }
 
-const INITIAL_DATA: AnalysisData = {
+const INITIAL: AnalysisData = {
   speed: 0, rpm: 0, rally: 0, netHeight: 0,
   judgment: null, marginMm: 0, shotType: '', accuracy: 0,
   isAnalyzing: false, ballDetected: false, motionLevel: 0,
   ballPositions: [], frameCount: 0, detectedFrames: 0,
 };
 
-// ---- Helpers ----
+// ---- Frame Buffer for 3-frame differencing ----
+class FrameBuffer {
+  private frames: Uint8Array[] = [];
+  private w = 0;
+  private h = 0;
 
-function rgbToHsv(r: number, g: number, b: number): [number, number, number] {
-  const rn = r / 255, gn = g / 255, bn = b / 255;
-  const max = Math.max(rn, gn, bn), min = Math.min(rn, gn, bn);
-  const d = max - min;
-  let h = 0;
-  if (d !== 0) {
-    if (max === rn) h = 60 * (((gn - bn) / d) % 6);
-    else if (max === gn) h = 60 * ((bn - rn) / d + 2);
-    else h = 60 * ((rn - gn) / d + 4);
+  init(w: number, h: number) { this.w = w; this.h = h; this.frames = []; }
+
+  push(imageData: ImageData) {
+    // Convert to grayscale
+    const gray = new Uint8Array(this.w * this.h);
+    const d = imageData.data;
+    for (let i = 0; i < this.w * this.h; i++) {
+      const j = i * 4;
+      gray[i] = Math.round(d[j] * 0.299 + d[j + 1] * 0.587 + d[j + 2] * 0.114);
+    }
+    this.frames.push(gray);
+    if (this.frames.length > 3) this.frames.shift();
   }
-  if (h < 0) h += 360;
-  h = h / 2;
-  const s = max === 0 ? 0 : (d / max) * 255;
-  const v = max * 255;
-  return [h, s, v];
+
+  /**
+   * 3-frame differencing: detects pixels that changed between frame N-2→N-1 AND N-1→N.
+   * This isolates truly moving objects and removes static noise.
+   */
+  getMotionMask(threshold: number = 20): Uint8Array | null {
+    if (this.frames.length < 3) return null;
+    const f0 = this.frames[0], f1 = this.frames[1], f2 = this.frames[2];
+    const mask = new Uint8Array(this.w * this.h);
+    for (let i = 0; i < this.w * this.h; i++) {
+      const d1 = Math.abs(f1[i] - f0[i]);
+      const d2 = Math.abs(f2[i] - f1[i]);
+      // Both transitions must show change — real motion
+      mask[i] = (d1 > threshold && d2 > threshold) ? 255 : 0;
+    }
+    return mask;
+  }
+
+  getLatestColor(): ImageData | null { return null; } // unused placeholder
+  ready() { return this.frames.length >= 3; }
 }
 
+// ---- Morphology ----
+function dilate(mask: Uint8Array, w: number, h: number, n: number): Uint8Array {
+  let m = mask;
+  for (let iter = 0; iter < n; iter++) {
+    const out = new Uint8Array(w * h);
+    for (let y = 1; y < h - 1; y++)
+      for (let x = 1; x < w - 1; x++) {
+        if (m[(y-1)*w+x] || m[(y+1)*w+x] || m[y*w+x-1] || m[y*w+x+1] || m[y*w+x])
+          out[y * w + x] = 255;
+      }
+    m = out;
+  }
+  return m;
+}
+
+function erode(mask: Uint8Array, w: number, h: number): Uint8Array {
+  const out = new Uint8Array(w * h);
+  for (let y = 1; y < h - 1; y++)
+    for (let x = 1; x < w - 1; x++) {
+      if (mask[(y-1)*w+x] && mask[(y+1)*w+x] && mask[y*w+x-1] && mask[y*w+x+1] && mask[y*w+x])
+        out[y * w + x] = 255;
+    }
+  return out;
+}
+
+// ---- Connected Components ----
 interface Blob {
   cx: number; cy: number;
   area: number; w: number; h: number;
-  colorScore: number; // how well it matches tennis ball color
+  compactness: number;
 }
 
-/**
- * Combined detection: color mask + frame differencing.
- * Returns candidate blobs sorted by likelihood of being the tennis ball.
- */
-function detectCandidates(
-  curr: ImageData,
-  prev: ImageData | null,
-  w: number, h: number,
-): Blob[] {
-  const data = curr.data;
-  const prevData = prev?.data;
-  // Scoring map: each pixel gets a score (0-255) based on color + motion
-  const scoreMap = new Uint8Array(w * h);
-
-  for (let i = 0; i < w * h; i++) {
-    const idx = i * 4;
-    const r = data[idx], g = data[idx + 1], b = data[idx + 2];
-
-    // --- Color score (0..150) ---
-    let colorScore = 0;
-    const [hue, sat, val] = rgbToHsv(r, g, b);
-
-    // Tennis ball yellow-green: wide detection
-    if (hue >= 15 && hue <= 55 && sat >= 25 && val >= 100) {
-      colorScore = 100;
-      // Bonus for being closer to ideal range
-      if (hue >= 25 && hue <= 45 && sat >= 50 && val >= 150) colorScore = 150;
-    }
-    // RGB fallback: green-dominant, not too blue
-    else if (g > 100 && g > b * 1.2 && r > 60 && (g - b) > 30 && b < 180) {
-      colorScore = 80;
-    }
-    // Bright white/yellow ball under strong light
-    else if (val > 220 && sat < 60 && hue >= 15 && hue <= 60) {
-      colorScore = 60;
-    }
-
-    // --- Motion score (0..100) ---
-    let motionScore = 0;
-    if (prevData) {
-      const dr = Math.abs(r - prevData[idx]);
-      const dg = Math.abs(g - prevData[idx + 1]);
-      const db = Math.abs(b - prevData[idx + 2]);
-      const diff = (dr + dg + db) / 3;
-      motionScore = Math.min(100, Math.round(diff * 3));
-    } else {
-      motionScore = 50; // No previous frame, assume possible motion
-    }
-
-    // Combined: color is primary, motion is secondary
-    const combined = Math.min(255, colorScore + motionScore * 0.5);
-    scoreMap[i] = combined > 60 ? 255 : 0; // threshold
-  }
-
-  // Morphological cleanup: erode once, dilate twice
-  let mask = scoreMap;
-  // Erode
-  const eroded = new Uint8Array(w * h);
-  for (let y = 1; y < h - 1; y++)
-    for (let x = 1; x < w - 1; x++) {
-      let ok = true;
-      for (let dy = -1; dy <= 1 && ok; dy++)
-        for (let dx = -1; dx <= 1 && ok; dx++)
-          if (mask[(y+dy)*w+(x+dx)] === 0) ok = false;
-      eroded[y*w+x] = ok ? 255 : 0;
-    }
-  mask = eroded;
-  // Dilate 2x
-  for (let iter = 0; iter < 2; iter++) {
-    const dilated = new Uint8Array(w * h);
-    for (let y = 1; y < h - 1; y++)
-      for (let x = 1; x < w - 1; x++) {
-        let any = false;
-        for (let dy = -1; dy <= 1 && !any; dy++)
-          for (let dx = -1; dx <= 1 && !any; dx++)
-            if (mask[(y+dy)*w+(x+dx)] === 255) any = true;
-        dilated[y*w+x] = any ? 255 : 0;
-      }
-    mask = dilated;
-  }
-
-  // Connected component labeling
+function findBlobs(mask: Uint8Array, w: number, h: number): Blob[] {
   const labels = new Int32Array(w * h);
-  let nextLabel = 1;
-  const blobs: Map<number, { minX: number; maxX: number; minY: number; maxY: number; count: number; sumX: number; sumY: number; colorSum: number }> = new Map();
+  let next = 1;
+  const data: Map<number, { minX: number; maxX: number; minY: number; maxY: number; n: number; sx: number; sy: number }> = new Map();
 
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
-      const idx = y * w + x;
-      if (mask[idx] === 255 && labels[idx] === 0) {
-        const label = nextLabel++;
-        const stack = [idx];
-        const b = { minX: x, maxX: x, minY: y, maxY: y, count: 0, sumX: 0, sumY: 0, colorSum: 0 };
-        while (stack.length > 0) {
+      const i = y * w + x;
+      if (mask[i] && !labels[i]) {
+        const label = next++;
+        const stack = [i];
+        const b = { minX: x, maxX: x, minY: y, maxY: y, n: 0, sx: 0, sy: 0 };
+        while (stack.length) {
           const ci = stack.pop()!;
-          if (labels[ci] !== 0) continue;
+          if (labels[ci]) continue;
           labels[ci] = label;
-          const cx = ci % w, cy = Math.floor(ci / w);
-          b.count++;
-          b.sumX += cx; b.sumY += cy;
-          if (cx < b.minX) b.minX = cx;
-          if (cx > b.maxX) b.maxX = cx;
-          if (cy < b.minY) b.minY = cy;
-          if (cy > b.maxY) b.maxY = cy;
-          // Accumulate original color score
-          const pi = ci * 4;
-          const [hh, ss, vv] = rgbToHsv(data[pi], data[pi+1], data[pi+2]);
-          if (hh >= 15 && hh <= 55 && ss >= 25 && vv >= 100) b.colorSum += 2;
-          else if (data[pi+1] > 100) b.colorSum += 1;
-
-          for (const [ddx, ddy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
-            const nx = cx+ddx, ny = cy+ddy;
+          const cx = ci % w, cy = (ci - cx) / w;
+          b.n++; b.sx += cx; b.sy += cy;
+          if (cx < b.minX) b.minX = cx; if (cx > b.maxX) b.maxX = cx;
+          if (cy < b.minY) b.minY = cy; if (cy > b.maxY) b.maxY = cy;
+          for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+            const nx = cx + dx, ny = cy + dy;
             if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
-              const ni = ny*w+nx;
-              if (mask[ni] === 255 && labels[ni] === 0) stack.push(ni);
+              const ni = ny * w + nx;
+              if (mask[ni] && !labels[ni]) stack.push(ni);
             }
           }
         }
-        blobs.set(label, b);
+        data.set(label, b);
       }
     }
 
-  // Convert to Blob array with filtering
-  const results: Blob[] = [];
-  for (const [, b] of blobs) {
+  const blobs: Blob[] = [];
+  for (const [, b] of data) {
     const bw = b.maxX - b.minX + 1;
     const bh = b.maxY - b.minY + 1;
-    const area = b.count;
-
-    // Tennis ball size filter: between 3 and 2000 pixels at 320x240
-    if (area < 3 || area > 2000) continue;
-
-    // Aspect ratio: ball should be roughly round
-    const aspect = bw / Math.max(bh, 1);
-    if (aspect < 0.3 || aspect > 3.0) continue;
-
-    // Compactness: area / bounding box area — ball should fill its bbox
-    const compactness = area / (bw * bh);
-    if (compactness < 0.2) continue; // too sparse, likely not a ball
-
-    results.push({
-      cx: Math.round(b.sumX / area),
-      cy: Math.round(b.sumY / area),
-      area, w: bw, h: bh,
-      colorScore: b.colorSum / area,
+    const area = b.n;
+    const compactness = area / Math.max(bw * bh, 1);
+    blobs.push({
+      cx: Math.round(b.sx / area), cy: Math.round(b.sy / area),
+      area, w: bw, h: bh, compactness,
     });
   }
-
-  return results;
+  return blobs;
 }
 
-// ---- Tracker with temporal consistency ----
+// ---- Color verification ----
+function colorScore(imageData: ImageData, cx: number, cy: number, w: number, h: number): number {
+  // Sample 5x5 area around the center
+  const d = imageData.data;
+  let score = 0, samples = 0;
+  for (let dy = -2; dy <= 2; dy++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      const x = cx + dx, y = cy + dy;
+      if (x < 0 || x >= w || y < 0 || y >= h) continue;
+      const i = (y * w + x) * 4;
+      const r = d[i], g = d[i + 1], b = d[i + 2];
+      samples++;
+      // Yellow-green: g is highest or close to r, b is lowest
+      if (g > 80 && g >= b && (g - b) > 15) score += 2;
+      // Bright pixel (tennis ball is bright)
+      if (r + g + b > 350) score += 1;
+      // Yellow-ish
+      if (r > 100 && g > 100 && b < r && b < g) score += 2;
+    }
+  }
+  return samples > 0 ? score / samples : 0;
+}
+
+// ---- Ball Tracker with prediction ----
+interface TrackPoint { x: number; y: number; t: number; }
 
 class BallTracker {
-  private history: { x: number; y: number; t: number }[] = [];
-  private lostFrames = 0;
+  history: TrackPoint[] = [];
+  lostCount = 0;
 
-  reset() { this.history = []; this.lostFrames = 0; }
+  reset() { this.history = []; this.lostCount = 0; }
 
-  update(candidates: Blob[], now: number): { x: number; y: number } | null {
-    if (candidates.length === 0) {
-      this.lostFrames++;
+  predict(): { x: number; y: number } | null {
+    const h = this.history;
+    if (h.length < 2) return null;
+    const a = h[h.length - 2], b = h[h.length - 1];
+    return { x: b.x + (b.x - a.x), y: b.y + (b.y - a.y) };
+  }
+
+  update(blobs: Blob[], colorData: ImageData, aw: number, ah: number, now: number): { x: number; y: number } | null {
+    if (blobs.length === 0) {
+      this.lostCount++;
       return null;
     }
 
-    let best: Blob | null = null;
-    let bestScore = -1;
-
+    const pred = this.predict();
     const lastPos = this.history.length > 0 ? this.history[this.history.length - 1] : null;
 
-    for (const c of candidates) {
+    let best: Blob | null = null;
+    let bestScore = -Infinity;
+
+    for (const b of blobs) {
       let score = 0;
 
-      // Color score (0..2)
-      score += c.colorScore;
+      // 1. Size: tennis ball is small (typically 3-80 pixels area at 320x240)
+      if (b.area >= 2 && b.area <= 100) score += 5;
+      else if (b.area > 100 && b.area <= 300) score += 2;
+      else if (b.area > 300 && b.area <= 600) score += 0.5;
+      else continue; // too big — not a ball
 
-      // Size score: prefer small-medium blobs (tennis ball)
-      if (c.area >= 5 && c.area <= 500) score += 1.5;
-      else if (c.area > 500 && c.area <= 1000) score += 0.5;
+      // 2. Shape: roughly round
+      const aspect = b.w / Math.max(b.h, 1);
+      if (aspect >= 0.4 && aspect <= 2.5) score += 3;
+      else continue;
 
-      // Compactness bonus
-      const compact = c.area / (c.w * c.h);
-      score += compact * 1.5;
+      // 3. Compactness
+      score += b.compactness * 3;
 
-      // Proximity to last known position
+      // 4. Color verification
+      const cs = colorScore(colorData, b.cx, b.cy, aw, ah);
+      score += cs * 1.5;
+
+      // 5. Proximity to last known position
       if (lastPos) {
-        const dist = Math.sqrt((c.cx - lastPos.x) ** 2 + (c.cy - lastPos.y) ** 2);
-        score += Math.max(0, 2 - dist / 80);
+        const dist = Math.sqrt((b.cx - lastPos.x) ** 2 + (b.cy - lastPos.y) ** 2);
+        if (dist < 120) score += 4 * (1 - dist / 120);
       }
 
-      // Motion consistency: if we have history, prefer candidates in predicted direction
-      if (this.history.length >= 2) {
-        const h = this.history;
-        const predX = h[h.length - 1].x + (h[h.length - 1].x - h[h.length - 2].x);
-        const predY = h[h.length - 1].y + (h[h.length - 1].y - h[h.length - 2].y);
-        const predDist = Math.sqrt((c.cx - predX) ** 2 + (c.cy - predY) ** 2);
-        score += Math.max(0, 1.5 - predDist / 60);
+      // 6. Proximity to predicted position
+      if (pred) {
+        const dist = Math.sqrt((b.cx - pred.x) ** 2 + (b.cy - pred.y) ** 2);
+        if (dist < 80) score += 3 * (1 - dist / 80);
       }
 
-      if (score > bestScore) { bestScore = score; best = c; }
+      if (score > bestScore) { bestScore = score; best = b; }
     }
 
-    if (!best) { this.lostFrames++; return null; }
-
-    // Filter static objects: check if it's actually moving
-    if (this.history.length >= 3) {
-      const recent = this.history.slice(-3);
-      let totalDist = 0;
-      for (const p of recent) {
-        totalDist += Math.sqrt((best.cx - p.x) ** 2 + (best.cy - p.y) ** 2);
-      }
-      if (totalDist / recent.length < 1.5) {
-        // Barely moved — static object
-        this.lostFrames++;
-        return null;
-      }
+    if (!best || bestScore < 3) {
+      this.lostCount++;
+      return null;
     }
 
-    this.lostFrames = 0;
+    this.lostCount = 0;
     this.history.push({ x: best.cx, y: best.cy, t: now });
-    if (this.history.length > 40) this.history.shift();
+    if (this.history.length > 60) this.history.shift();
     return { x: best.cx, y: best.cy };
   }
-
-  getHistory() { return this.history; }
-  getLostFrames() { return this.lostFrames; }
 }
 
 // ---- Metrics ----
-
-function calcSpeed(history: { x: number; y: number; t: number }[], aw: number): number {
-  if (history.length < 2) return 0;
-  const a = history[history.length - 2];
-  const b = history[history.length - 1];
+function calcSpeed(h: TrackPoint[], aw: number): number {
+  if (h.length < 2) return 0;
+  const a = h[h.length - 2], b = h[h.length - 1];
   const dt = (b.t - a.t) / 1000;
-  if (dt <= 0) return 0;
+  if (dt <= 0.01) return 0;
   const px = Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2);
-  const m = px * (23.77 / aw); // ITF court = 23.77m
+  const m = px * (23.77 / aw);
   return Math.min(260, Math.round((m / dt) * 3.6));
 }
 
-function calcShotType(history: { x: number; y: number; t: number }[]): string {
-  if (history.length < 3) return '';
-  const h = history.slice(-4);
-  const dx = h[h.length - 1].x - h[0].x;
-  const dy = h[h.length - 1].y - h[0].y;
-  if (dy < -40) return '发球';
-  if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return '';
-  if (dx > 15 && dy < -10) return '正手上旋';
-  if (dx < -15 && dy < -10) return '反手切球';
-  if (dx > 15) return '正手抽球';
-  if (dx < -15) return '反手抽球';
+function calcShotType(h: TrackPoint[]): string {
+  if (h.length < 4) return '';
+  const s = h.slice(-5);
+  const dx = s[s.length - 1].x - s[0].x;
+  const dy = s[s.length - 1].y - s[0].y;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len < 5) return '';
+  if (dy < -30 && Math.abs(dx) < 20) return '发球';
+  if (dx > 12 && dy < -8) return '正手上旋';
+  if (dx < -12 && dy < -8) return '反手切球';
+  if (dx > 12) return '正手抽球';
+  if (dx < -12) return '反手抽球';
+  if (Math.abs(dy) > 20 && Math.abs(dx) < 10) return '高压球';
   return '';
 }
 
-function detectRally(history: { x: number; y: number; t: number }[]): boolean {
-  if (history.length < 5) return false;
-  const h = history;
+function detectRally(h: TrackPoint[]): boolean {
+  if (h.length < 6) return false;
   const n = h.length;
-  const dx1 = h[n - 3].x - h[n - 4].x;
-  const dx2 = h[n - 1].x - h[n - 2].x;
-  // Direction reversal
-  if ((dx1 > 4 && dx2 < -4) || (dx1 < -4 && dx2 > 4)) {
-    const speed = Math.sqrt((h[n-1].x - h[n-2].x)**2 + (h[n-1].y - h[n-2].y)**2);
-    return speed > 3;
+  // Check for direction reversal in X
+  const dx1 = h[n - 4].x - h[n - 6].x;
+  const dx2 = h[n - 1].x - h[n - 3].x;
+  if ((dx1 > 6 && dx2 < -6) || (dx1 < -6 && dx2 > 6)) {
+    // Confirm with sufficient speed
+    const speed = Math.sqrt((h[n-1].x - h[n-2].x) ** 2 + (h[n-1].y - h[n-2].y) ** 2);
+    return speed > 2;
   }
   return false;
 }
 
-// ---- Hook ----
-
+// ---- Main Hook ----
 export function useVideoAnalysis(
   active: boolean,
   videoElement: HTMLVideoElement | null,
-  intervalMs = 150,
+  intervalMs = 100,
 ) {
-  const [data, setData] = useState<AnalysisData>({ ...INITIAL_DATA });
-
-  // Overlay canvas that will be drawn on top of video
+  const [data, setData] = useState<AnalysisData>({ ...INITIAL });
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
-  const analysisCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const analysisCtxRef = useRef<CanvasRenderingContext2D | null>(null);
-  const prevFrameRef = useRef<ImageData | null>(null);
+  const aCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const aCtxRef = useRef<CanvasRenderingContext2D | null>(null);
+  const frameBufferRef = useRef(new FrameBuffer());
   const trackerRef = useRef(new BallTracker());
   const rallyRef = useRef(0);
   const shotCountRef = useRef(0);
   const inCountRef = useRef(0);
-  const frameCountRef = useRef(0);
-  const detectedFramesRef = useRef(0);
-  const lastJudgmentRef = useRef<'in' | 'out' | 'net' | null>(null);
-  const lastRallyFrameRef = useRef(0);
+  const fCountRef = useRef(0);
+  const dCountRef = useRef(0);
+  const lastJRef = useRef<'in' | 'out' | 'net' | null>(null);
+  const lastRallyFRef = useRef(0);
 
   const reset = useCallback(() => {
     trackerRef.current.reset();
-    prevFrameRef.current = null;
-    rallyRef.current = 0;
-    shotCountRef.current = 0;
-    inCountRef.current = 0;
-    frameCountRef.current = 0;
-    detectedFramesRef.current = 0;
-    lastJudgmentRef.current = null;
-    lastRallyFrameRef.current = 0;
-    setData({ ...INITIAL_DATA });
-    // Clear overlay
+    frameBufferRef.current = new FrameBuffer();
+    rallyRef.current = 0; shotCountRef.current = 0; inCountRef.current = 0;
+    fCountRef.current = 0; dCountRef.current = 0;
+    lastJRef.current = null; lastRallyFRef.current = 0;
+    setData({ ...INITIAL });
     if (overlayRef.current) {
-      const ctx = overlayRef.current.getContext('2d');
-      if (ctx) ctx.clearRect(0, 0, overlayRef.current.width, overlayRef.current.height);
+      const c = overlayRef.current.getContext('2d');
+      if (c) c.clearRect(0, 0, overlayRef.current.width, overlayRef.current.height);
     }
   }, []);
 
-  // Create/get the overlay canvas element (to be mounted in the DOM)
   const getOverlayCanvas = useCallback(() => {
     if (!overlayRef.current) {
       overlayRef.current = document.createElement('canvas');
@@ -369,23 +325,15 @@ export function useVideoAnalysis(
   }, []);
 
   useEffect(() => {
-    if (!active || !videoElement) {
-      prevFrameRef.current = null;
-      return;
-    }
+    if (!active || !videoElement) return;
 
-    // Setup analysis canvas (offscreen, small)
-    if (!analysisCanvasRef.current) {
-      analysisCanvasRef.current = document.createElement('canvas');
-    }
     const AW = 320, AH = 240;
-    analysisCanvasRef.current.width = AW;
-    analysisCanvasRef.current.height = AH;
-    analysisCtxRef.current = analysisCanvasRef.current.getContext('2d', { willReadFrequently: true });
+    if (!aCanvasRef.current) aCanvasRef.current = document.createElement('canvas');
+    aCanvasRef.current.width = AW; aCanvasRef.current.height = AH;
+    aCtxRef.current = aCanvasRef.current.getContext('2d', { willReadFrequently: true });
+    frameBufferRef.current.init(AW, AH);
 
-    // Setup overlay canvas (matches video container)
     const overlay = getOverlayCanvas();
-    // Attach overlay to video's parent if not already
     const parent = videoElement.parentElement;
     if (parent && !parent.contains(overlay)) {
       parent.style.position = 'relative';
@@ -395,91 +343,100 @@ export function useVideoAnalysis(
     setData(prev => ({ ...prev, isAnalyzing: true }));
 
     const interval = setInterval(() => {
-      const ctx = analysisCtxRef.current;
+      const ctx = aCtxRef.current;
       if (!ctx || !videoElement || videoElement.paused || videoElement.ended || videoElement.readyState < 2) return;
 
-      // Resize overlay to match video container
-      const vw = videoElement.clientWidth || videoElement.videoWidth || 640;
-      const vh = videoElement.clientHeight || videoElement.videoHeight || 480;
-      if (overlay.width !== vw || overlay.height !== vh) {
-        overlay.width = vw;
-        overlay.height = vh;
-      }
+      const vw = videoElement.clientWidth || 640;
+      const vh = videoElement.clientHeight || 480;
+      if (overlay.width !== vw || overlay.height !== vh) { overlay.width = vw; overlay.height = vh; }
 
-      frameCountRef.current++;
-
-      // Draw frame to analysis canvas
+      fCountRef.current++;
       ctx.drawImage(videoElement, 0, 0, AW, AH);
       const frameData = ctx.getImageData(0, 0, AW, AH);
+      frameBufferRef.current.push(frameData);
 
-      // Detect candidates using color + motion
-      const candidates = detectCandidates(frameData, prevFrameRef.current, AW, AH);
-      prevFrameRef.current = frameData;
+      // Need 3 frames for motion detection
+      if (!frameBufferRef.current.ready()) return;
 
-      // Track best ball
+      // Step 1: 3-frame differencing to get motion mask
+      let motionMask = frameBufferRef.current.getMotionMask(18);
+      if (!motionMask) return;
+
+      // Step 2: Morphological cleanup — dilate to connect nearby pixels, then erode noise
+      motionMask = dilate(motionMask, AW, AH, 3);
+      motionMask = erode(motionMask, AW, AH);
+
+      // Step 3: Find moving blobs
+      const blobs = findBlobs(motionMask, AW, AH);
+
+      // Step 4: Track the ball
       const now = Date.now();
-      const ball = trackerRef.current.update(candidates, now);
-      const history = trackerRef.current.getHistory();
+      const ball = trackerRef.current.update(blobs, frameData, AW, AH, now);
+      const history = trackerRef.current.history;
 
-      // Scale factors for overlay drawing
+      // Scale for overlay drawing
       const sx = vw / AW, sy = vh / AH;
       const oCtx = overlay.getContext('2d');
 
       if (oCtx) {
         oCtx.clearRect(0, 0, vw, vh);
 
-        if (ball && history.length >= 2) {
-          // Draw trajectory trail
-          oCtx.strokeStyle = '#a1fe00';
-          oCtx.lineWidth = 3;
-          oCtx.shadowColor = '#a1fe00';
-          oCtx.shadowBlur = 8;
-          oCtx.beginPath();
-          const trail = history.slice(-15);
-          oCtx.moveTo(trail[0].x * sx, trail[0].y * sy);
-          for (let i = 1; i < trail.length; i++) {
-            oCtx.lineTo(trail[i].x * sx, trail[i].y * sy);
+        if (ball) {
+          // Draw trajectory trail (green glow line)
+          if (history.length >= 2) {
+            const trail = history.slice(-20);
+            for (let i = 1; i < trail.length; i++) {
+              const alpha = 0.2 + 0.8 * (i / trail.length);
+              const width = 1 + 2 * (i / trail.length);
+              oCtx.strokeStyle = `rgba(161, 254, 0, ${alpha})`;
+              oCtx.lineWidth = width;
+              oCtx.beginPath();
+              oCtx.moveTo(trail[i - 1].x * sx, trail[i - 1].y * sy);
+              oCtx.lineTo(trail[i].x * sx, trail[i].y * sy);
+              oCtx.stroke();
+            }
           }
+
+          // Ball marker: red circle with glow
+          const bx = ball.x * sx, by = ball.y * sy;
+          oCtx.shadowColor = '#ff3030';
+          oCtx.shadowBlur = 15;
+          oCtx.strokeStyle = '#ff3030';
+          oCtx.lineWidth = 2.5;
+          oCtx.beginPath();
+          oCtx.arc(bx, by, 14, 0, Math.PI * 2);
           oCtx.stroke();
           oCtx.shadowBlur = 0;
 
-          // Draw ball marker
-          oCtx.beginPath();
-          oCtx.arc(ball.x * sx, ball.y * sy, 12, 0, Math.PI * 2);
-          oCtx.strokeStyle = '#ff3030';
-          oCtx.lineWidth = 3;
-          oCtx.stroke();
-          oCtx.beginPath();
-          oCtx.arc(ball.x * sx, ball.y * sy, 4, 0, Math.PI * 2);
+          // Inner dot
           oCtx.fillStyle = '#ff3030';
+          oCtx.beginPath();
+          oCtx.arc(bx, by, 4, 0, Math.PI * 2);
           oCtx.fill();
 
-          // Draw coordinates text
-          oCtx.font = 'bold 14px monospace';
-          oCtx.fillStyle = '#ff3030';
-          oCtx.fillText(`(${Math.round(ball.x * sx)}, ${Math.round(ball.y * sy)})`,
-            ball.x * sx + 16, ball.y * sy - 16);
+          // Coordinate text
+          oCtx.font = 'bold 12px monospace';
+          oCtx.fillStyle = 'rgba(255, 48, 48, 0.9)';
+          oCtx.fillText(`(${Math.round(bx)},${Math.round(by)})`, bx + 18, by - 18);
         }
 
-        // Frame counter
-        oCtx.font = 'bold 12px monospace';
-        oCtx.fillStyle = 'rgba(255,255,255,0.7)';
-        oCtx.fillText(`Frame: ${frameCountRef.current}  Detected: ${detectedFramesRef.current}`, 10, vh - 10);
+        // Bottom-left info
+        oCtx.font = '11px monospace';
+        oCtx.fillStyle = 'rgba(255,255,255,0.6)';
+        oCtx.fillText(`F:${fCountRef.current} D:${dCountRef.current} B:${blobs.length}`, 8, vh - 8);
       }
 
       if (ball) {
-        detectedFramesRef.current++;
-
+        dCountRef.current++;
         const speed = calcSpeed(history, AW);
         const shotType = calcShotType(history);
-        const netY = AH * 0.5;
-        const netHeight = Math.round(Math.max(0, 45 - Math.abs(ball.y - netY) * (90 / AH)));
+        const netHeight = Math.round(Math.max(0, 45 - Math.abs(ball.y - AH * 0.5) * (90 / AH)));
 
         // Rally detection with cooldown
-        if (detectRally(history) && frameCountRef.current - lastRallyFrameRef.current > 10) {
+        if (detectRally(history) && fCountRef.current - lastRallyFRef.current > 15) {
           rallyRef.current++;
           shotCountRef.current++;
-          lastRallyFrameRef.current = frameCountRef.current;
+          lastRallyFRef.current = fCountRef.current;
 
           const inX = ball.x > AW * 0.05 && ball.x < AW * 0.95;
           const inY = ball.y > AH * 0.08 && ball.y < AH * 0.92;
@@ -489,37 +446,36 @@ export function useVideoAnalysis(
           else if (inX && inY) j = 'in';
           else j = 'out';
           if (j === 'in') inCountRef.current++;
-          lastJudgmentRef.current = j;
+          lastJRef.current = j;
         }
 
         const accuracy = shotCountRef.current > 0 ? Math.round((inCountRef.current / shotCountRef.current) * 100) : 0;
         const bDx = Math.min(ball.x - AW * 0.05, AW * 0.95 - ball.x);
         const bDy = Math.min(ball.y - AH * 0.08, AH * 0.92 - ball.y);
         const marginMm = parseFloat((Math.max(0, Math.min(bDx, bDy)) * 0.3).toFixed(1));
-        const rpm = speed > 30 ? Math.round(800 + speed * 7.5) : 0;
+        const rpm = speed > 25 ? Math.round(600 + speed * 8) : 0;
         const motionLevel = history.length >= 2
-          ? Math.min(100, Math.round(Math.sqrt((history[history.length-1].x - history[history.length-2].x)**2 + (history[history.length-1].y - history[history.length-2].y)**2) * 3))
+          ? Math.min(100, Math.round(Math.sqrt((history[history.length - 1].x - history[history.length - 2].x) ** 2 + (history[history.length - 1].y - history[history.length - 2].y) ** 2) * 4))
           : 0;
 
         setData({
           speed, rpm, rally: rallyRef.current, netHeight,
-          judgment: lastJudgmentRef.current, marginMm, shotType, accuracy,
+          judgment: lastJRef.current, marginMm, shotType, accuracy,
           isAnalyzing: true, ballDetected: true, motionLevel,
-          ballPositions: history.slice(-10).map(h => ({ x: h.x, y: h.y })),
-          frameCount: frameCountRef.current, detectedFrames: detectedFramesRef.current,
+          ballPositions: history.slice(-10).map(p => ({ x: p.x, y: p.y })),
+          frameCount: fCountRef.current, detectedFrames: dCountRef.current,
         });
       } else {
-        const lost = trackerRef.current.getLostFrames();
-        if (lost > 20) {
+        if (trackerRef.current.lostCount > 30) {
           setData(prev => ({
             ...prev, ballDetected: false, speed: 0, rpm: 0, shotType: '',
             motionLevel: 0, ballPositions: [],
-            frameCount: frameCountRef.current, detectedFrames: detectedFramesRef.current,
+            frameCount: fCountRef.current, detectedFrames: dCountRef.current,
           }));
         } else {
           setData(prev => ({
             ...prev, ballDetected: false,
-            frameCount: frameCountRef.current, detectedFrames: detectedFramesRef.current,
+            frameCount: fCountRef.current, detectedFrames: dCountRef.current,
           }));
         }
       }
@@ -527,7 +483,6 @@ export function useVideoAnalysis(
 
     return () => {
       clearInterval(interval);
-      // Remove overlay from DOM
       if (overlay.parentElement) overlay.parentElement.removeChild(overlay);
     };
   }, [active, videoElement, intervalMs, getOverlayCanvas]);
