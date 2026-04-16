@@ -55,39 +55,45 @@ function dilate2x(m: Uint8Array, w: number, h: number): Uint8Array {
   return cur;
 }
 
-// ---- Tennis ball color check (strict) ----
+// ---- Tennis ball color: VERY strict, only fluorescent yellow-green ----
 
 function isTennisBallColor(r: number, g: number, b: number): number {
-  // Score 0-5 for how tennis-ball-like this pixel is
+  // Tennis ball = fluorescent optic yellow: R and G both high, B much lower
+  // RGB typical range: R:180-255, G:200-255, B:0-120
 
-  // Hard reject: too dark
-  if (r + g + b < 200) return 0;
+  // Hard rejects first:
+  if (r + g + b < 280) return 0;           // Too dark
+  if (b > 140) return 0;                    // Too much blue
+  if (b > g || b > r) return 0;            // Blue dominant = not ball
+  if (g < 100) return 0;                    // Not enough green
+  if (r < 80) return 0;                     // Not enough red
 
-  // Hard reject: too blue (sky, clothing)
-  if (b > g && b > r) return 0;
+  // Reject gray/white: R≈G≈B (racket, lines, shirt)
+  if (Math.abs(r - g) < 20 && Math.abs(g - b) < 30 && b > 100) return 0;
 
-  // Hard reject: skin tones
-  if (r > 150 && g < r - 20 && b < r - 40) return 0;
+  // Reject skin: R >> G
+  if (r > g + 40) return 0;
 
-  // Hard reject: gray/white (racket frame, lines)
-  if (Math.abs(r - g) < 15 && Math.abs(g - b) < 15 && r > 150) return 0;
+  // Reject pure green (trees, grass): G >> R
+  if (g > r + 50) return 0;
 
-  // Hard reject: dark green (court surface typically has low R)
-  if (g > 80 && r < 60 && b < 60) return 0;
+  // Reject red/orange: R >> G
+  if (r > g + 30 && b < 80) return 0;
 
-  let score = 0;
+  // Now score remaining candidates
+  const gbDiff = g - b;  // Must be large for tennis ball
+  const rgDiff = Math.abs(r - g); // Should be small (ball is both R and G high)
 
-  // Core: yellow-green where G is dominant or equal to R, B is clearly lower
-  const gbDiff = g - b;
-  if (gbDiff > 40 && g > 120 && r > 80) score += 3;
-  else if (gbDiff > 25 && g > 100 && r > 70) score += 2;
-  else if (gbDiff > 15 && g > 90) score += 1;
-  else return 0; // Not enough green-blue separation
+  // Tier 1: Perfect optic yellow — R≈G, both high, B very low
+  if (r > 170 && g > 180 && b < 100 && rgDiff < 40 && gbDiff > 80) return 5;
 
-  // Bonus: classic optic yellow (high R and G, low B)
-  if (r > 150 && g > 160 && b < 120) score += 2;
+  // Tier 2: Good yellow-green — G slightly > R, B clearly low  
+  if (g > 150 && r > 130 && b < 120 && gbDiff > 50 && rgDiff < 50) return 4;
 
-  return score;
+  // Tier 3: Acceptable — still has clear yellow-green signature
+  if (g > 120 && r > 100 && b < 130 && gbDiff > 35 && rgDiff < 60) return 3;
+
+  return 0; // Doesn't match tennis ball
 }
 
 // ---- Find ball: color+motion → cluster → shape check ----
@@ -160,24 +166,24 @@ function findBall(
     const cw = maxX - minX + 1;
     const ch = maxY - minY + 1;
 
-    // ---- Shape filters to reject non-ball objects ----
+    // ---- Shape filters: tennis ball is SMALL and ROUND ----
 
-    // Reject if too large (person, racket swing arc)
-    if (cw > 50 || ch > 50) continue;
-    if (n > 120) continue; // Too many pixels at step=2
+    // Max size at 320x240: ball is typically 5-30px wide
+    if (cw > 35 || ch > 35) continue;
+    if (n > 60) continue; // Too many candidate pixels
 
-    // Reject if very elongated (racket: long and thin)
+    // Must be roughly round (racket is elongated)
     const aspect = cw / Math.max(ch, 1);
-    if (aspect > 2.5 || aspect < 0.4) continue;
+    if (aspect > 2.0 || aspect < 0.5) continue;
 
-    // Reject if too sparse (scattered noise, not a compact ball)
-    const density = n / ((cw / 2) * (ch / 2) + 1); // at step=2
-    if (density < 0.1) continue;
+    // Must be compact (not scattered noise)
+    const density = n / ((cw / 2 + 1) * (ch / 2 + 1));
+    if (density < 0.15) continue;
 
-    // Score: avg color score + compactness bonus + small size bonus
+    // Score: color quality + compactness + small = better
     const avgS = totalS / n;
     const compactBonus = Math.min(density, 1) * 2;
-    const sizeBonus = (cw <= 25 && ch <= 25) ? 2 : (cw <= 35 && ch <= 35) ? 1 : 0;
+    const sizeBonus = (cw <= 15 && ch <= 15) ? 3 : (cw <= 25 && ch <= 25) ? 1.5 : 0;
     const finalScore = avgS + compactBonus + sizeBonus;
 
     if (finalScore > bestScore) {
@@ -188,8 +194,8 @@ function findBall(
     }
   }
 
-  // Only return if score is reasonably high
-  if (best && best.score >= 3) return best;
+  // Only return if score is high enough — conservative to avoid false positives
+  if (best && best.score >= 4) return best;
   return null;
 }
 
@@ -358,33 +364,20 @@ export function useVideoAnalysis(
       if (oCtx) {
         oCtx.clearRect(0, 0, vw, vh);
 
-        if (ball && hist.length >= 2) {
-          // Green trajectory trail with fade
-          const trail = hist.slice(-15);
-          for (let i = 1; i < trail.length; i++) {
-            const a = 0.1 + 0.9 * (i / trail.length);
-            oCtx.strokeStyle = `rgba(161,254,0,${a})`;
-            oCtx.lineWidth = 1 + 2 * (i / trail.length);
-            oCtx.beginPath();
-            oCtx.moveTo(mx(trail[i-1].x), my(trail[i-1].y));
-            oCtx.lineTo(mx(trail[i].x), my(trail[i].y));
-            oCtx.stroke();
-          }
-
-          // Red ball marker
+        if (ball) {
+          // Only draw ball marker — no trajectory trail
           const bx = mx(ball.x), by = my(ball.y);
-          oCtx.shadowColor = '#ff3030'; oCtx.shadowBlur = 10;
-          oCtx.strokeStyle = '#ff3030'; oCtx.lineWidth = 2;
-          oCtx.beginPath(); oCtx.arc(bx, by, 10, 0, Math.PI*2); oCtx.stroke();
-          oCtx.shadowBlur = 0;
-          oCtx.fillStyle = '#ff3030';
-          oCtx.beginPath(); oCtx.arc(bx, by, 3, 0, Math.PI*2); oCtx.fill();
 
-          oCtx.font = 'bold 10px monospace';
-          oCtx.fillStyle = 'rgba(255,48,48,0.8)';
-          oCtx.fillText(`(${Math.round(bx)},${Math.round(by)})`, bx + 14, by - 12);
+          // Outer glow circle
+          oCtx.shadowColor = '#a1fe00'; oCtx.shadowBlur = 12;
+          oCtx.strokeStyle = '#a1fe00'; oCtx.lineWidth = 2.5;
+          oCtx.beginPath(); oCtx.arc(bx, by, 12, 0, Math.PI * 2); oCtx.stroke();
+          oCtx.shadowBlur = 0;
+
+          // Inner solid dot
+          oCtx.fillStyle = '#ff3030';
+          oCtx.beginPath(); oCtx.arc(bx, by, 3, 0, Math.PI * 2); oCtx.fill();
         }
-        // NO debug text or stale data when ball not detected - clean overlay
       }
 
       if (ball) {
