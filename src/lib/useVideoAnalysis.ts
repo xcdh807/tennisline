@@ -367,31 +367,53 @@ export function useVideoAnalysis(
       if (overlay.width !== vw || overlay.height !== vh) { overlay.width = vw; overlay.height = vh; }
 
       fCountRef.current++;
+
+      // Get the actual video intrinsic dimensions
+      const vidW = videoElement.videoWidth || AW;
+      const vidH = videoElement.videoHeight || AH;
+
       ctx.drawImage(videoElement, 0, 0, AW, AH);
       const frameData = ctx.getImageData(0, 0, AW, AH);
       frameBufferRef.current.push(frameData);
 
-      // Need 3 frames for motion detection
       if (!frameBufferRef.current.ready()) return;
 
-      // Step 1: 3-frame differencing to get motion mask
-      let motionMask = frameBufferRef.current.getMotionMask(18);
+      let motionMask = frameBufferRef.current.getMotionMask(12);
       if (!motionMask) return;
 
-      // Step 2: Morphological cleanup — dilate to connect nearby pixels, then erode noise
       motionMask = dilate(motionMask, AW, AH, 3);
       motionMask = erode(motionMask, AW, AH);
 
-      // Step 3: Find moving blobs
       const blobs = findBlobs(motionMask, AW, AH);
 
-      // Step 4: Track the ball
       const now = Date.now();
       const ball = trackerRef.current.update(blobs, frameData, AW, AH, now);
       const history = trackerRef.current.history;
 
-      // Scale for overlay drawing
-      const sx = vw / AW, sy = vh / AH;
+      // ---- Compute actual video render rect within the container (object-contain) ----
+      // object-contain scales the video to fit within the container while maintaining aspect ratio.
+      // This means there may be black bars (letterbox or pillarbox).
+      const containerAspect = vw / vh;
+      const videoAspect = vidW / vidH;
+      let renderW: number, renderH: number, offsetX: number, offsetY: number;
+      if (videoAspect > containerAspect) {
+        // Video is wider → pillarbox (black bars top/bottom)
+        renderW = vw;
+        renderH = vw / videoAspect;
+        offsetX = 0;
+        offsetY = (vh - renderH) / 2;
+      } else {
+        // Video is taller → letterbox (black bars left/right)
+        renderH = vh;
+        renderW = vh * videoAspect;
+        offsetX = (vw - renderW) / 2;
+        offsetY = 0;
+      }
+
+      // Map analysis coords (0..AW, 0..AH) → container pixel coords
+      const mapX = (ax: number) => offsetX + (ax / AW) * renderW;
+      const mapY = (ay: number) => offsetY + (ay / AH) * renderH;
+
       const oCtx = overlay.getContext('2d');
 
       if (oCtx) {
@@ -407,14 +429,14 @@ export function useVideoAnalysis(
               oCtx.strokeStyle = `rgba(161, 254, 0, ${alpha})`;
               oCtx.lineWidth = width;
               oCtx.beginPath();
-              oCtx.moveTo(trail[i - 1].x * sx, trail[i - 1].y * sy);
-              oCtx.lineTo(trail[i].x * sx, trail[i].y * sy);
+              oCtx.moveTo(mapX(trail[i - 1].x), mapY(trail[i - 1].y));
+              oCtx.lineTo(mapX(trail[i].x), mapY(trail[i].y));
               oCtx.stroke();
             }
           }
 
           // Ball marker: red circle with glow
-          const bx = ball.x * sx, by = ball.y * sy;
+          const bx = mapX(ball.x), by = mapY(ball.y);
           oCtx.shadowColor = '#ff3030';
           oCtx.shadowBlur = 15;
           oCtx.strokeStyle = '#ff3030';
