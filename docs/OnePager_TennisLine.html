@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>TennisLine · One Pager</title>
+<style>
+  @page { size: A4; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { font-family: -apple-system, "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+               color: #1a1a1a; background: #fff; }
+  .page {
+    width: 210mm; height: 297mm; padding: 14mm 16mm 12mm 16mm;
+    display: flex; flex-direction: column; gap: 7mm;
+    background: #fff;
+  }
+  /* ------- Header ------- */
+  .hdr {
+    display: flex; justify-content: space-between; align-items: flex-end;
+    padding-bottom: 5mm; border-bottom: 2.5px solid #1a1a1a;
+  }
+  .hdr h1 { font-size: 24pt; font-weight: 900; letter-spacing: -0.02em; line-height: 1; }
+  .hdr h1 .accent { color: #6f9c00; font-style: italic; }
+  .hdr .sub { margin-top: 2mm; font-size: 9pt; color: #555; letter-spacing: 0.04em; }
+  .hdr .role {
+    text-align: right; font-size: 8pt; color: #1a1a1a;
+    background: #a1fe00; padding: 3mm 4mm; border-radius: 2px;
+    font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  }
+  .hdr .role strong { display: block; font-size: 10pt; margin-bottom: 1mm; }
+
+  /* ------- Section ------- */
+  section h2 {
+    font-size: 10pt; font-weight: 800; letter-spacing: 0.18em;
+    text-transform: uppercase; color: #6f9c00; margin-bottom: 2.5mm;
+    display: flex; align-items: center; gap: 2mm;
+  }
+  section h2::before {
+    content: ""; width: 6px; height: 6px; background: #a1fe00; transform: rotate(45deg);
+  }
+  section p, section li { font-size: 9pt; line-height: 1.55; color: #1a1a1a; }
+  section strong { font-weight: 700; }
+
+  .quote { font-size: 10.5pt; line-height: 1.5; font-weight: 500; }
+  .quote .hl { background: linear-gradient(transparent 60%, #a1fe0055 60%); padding: 0 2px; }
+
+  /* ------- Two-column grid ------- */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 5mm; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4mm; }
+
+  /* ------- Cards ------- */
+  .card {
+    border: 1px solid #e0e0e0; border-left: 3px solid #a1fe00;
+    padding: 3mm 3.5mm; border-radius: 2px; background: #fafafa;
+  }
+  .card .t { font-size: 9pt; font-weight: 700; margin-bottom: 1.5mm; }
+  .card .d { font-size: 8pt; color: #555; line-height: 1.5; }
+
+  /* ------- Pipeline ------- */
+  .pipe {
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 7.5pt; line-height: 1.7; color: #333;
+    background: #f3f3f3; padding: 3mm 4mm; border-radius: 3px;
+    border-left: 3px solid #6f9c00; white-space: pre-wrap;
+  }
+
+  /* ------- Metric chips ------- */
+  .chips { display: flex; flex-wrap: wrap; gap: 2.5mm; }
+  .chip {
+    border: 1px solid #1a1a1a; padding: 1.8mm 3mm; border-radius: 999px;
+    font-size: 7.5pt; font-weight: 600;
+  }
+  .chip.fill { background: #1a1a1a; color: #a1fe00; }
+
+  /* ------- Stories ------- */
+  .stories { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3mm; }
+  .story { padding: 3mm; background: #f7f7f7; border-radius: 3px; }
+  .story .num { font-size: 14pt; font-weight: 900; color: #a1fe00; -webkit-text-stroke: 0.5px #6f9c00; line-height: 1; }
+  .story .title { font-size: 8.5pt; font-weight: 700; margin-top: 1mm; }
+  .story .body { font-size: 7.5pt; color: #555; line-height: 1.5; margin-top: 1.5mm; }
+
+  /* ------- Footer ------- */
+  footer {
+    margin-top: auto; padding-top: 3mm; border-top: 1px solid #e0e0e0;
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 7.5pt; color: #666;
+  }
+  footer .links { display: flex; gap: 4mm; }
+  footer .tag {
+    background: #1a1a1a; color: #a1fe00; padding: 1mm 2.5mm;
+    font-size: 7pt; letter-spacing: 0.12em; font-weight: 700; text-transform: uppercase;
+  }
+
+  ul.clean { list-style: none; padding: 0; }
+  ul.clean li { padding-left: 4mm; position: relative; margin-bottom: 1mm; }
+  ul.clean li::before {
+    content: "›"; position: absolute; left: 0; color: #a1fe00;
+    font-weight: 900; font-size: 10pt; line-height: 1;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ============ HEADER ============ -->
+  <div class="hdr">
+    <div>
+      <h1>Tennis<span class="accent">Line</span></h1>
+      <div class="sub">AI Tennis Trajectory Tracker · 口袋里的鹰眼</div>
+    </div>
+    <div class="role">
+      <strong>产品负责人 (0→1)</strong>
+      2 个月 · 个人项目 · Web App
+    </div>
+  </div>
+
+  <!-- ============ PITCH ============ -->
+  <section>
+    <p class="quote">
+      打开手机浏览器即可拍摄或上传网球视频，
+      在 <span class="hl">浏览器本地实时 AI</span> 识别球体、绘制轨迹，
+      输出 <span class="hl">球速 / 旋转 / 落点 / 界内出界判定</span>，
+      让业余球员以 <span class="hl">零硬件成本</span> 获得接近 ATP 鹰眼的体验。
+    </p>
+  </section>
+
+  <!-- ============ KEY DECISIONS ============ -->
+  <section>
+    <h2>3 个关键产品决策</h2>
+    <div class="grid-3">
+      <div class="card">
+        <div class="t">Web-First 而非原生 App</div>
+        <div class="d">0 下载门槛 · 全平台触达 · 迭代从"周"降到"小时" · 安卓/iOS 同步上线</div>
+      </div>
+      <div class="card">
+        <div class="t">算法跑在浏览器本地</div>
+        <div class="d">隐私保护 · 零延迟 · 零服务器算力成本 · 视频帧从不离开用户设备</div>
+      </div>
+      <div class="card">
+        <div class="t">注册即 seed 示例数据</div>
+        <div class="d">新用户首次打开看板就是"成品感" · 规避空状态冷启动流失</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ TECH PIPELINE ============ -->
+  <section>
+    <h2>核心技术亮点 · 浏览器内实时 CV 管线</h2>
+    <div class="pipe">video frame → 320×240 缩放 → 灰度帧差 → 形态学膨胀 → motion mask
+    → HSV 颜色筛选（网球荧光黄 H:18–48）→ 18px 网格聚类
+    → 形状校验（尺寸 / 长宽比 / 密度 / 圆度）→ 评分 + 物理约束 Tracker
+    → 球速 / 旋转 / 落点 / 击球类型 / 回合数</div>
+    <p style="margin-top:2.5mm; font-size:9pt;">
+      <strong>"先运动再颜色"</strong> 策略把误检率从 ~60% 降到 <strong>~15%</strong>（小样本估算）。
+      数据层：Supabase 全表 RLS · Storage 按 userId 隔离 · 删除联动清理 · 保存失败自动降级本地下载。
+    </p>
+  </section>
+
+  <!-- ============ STACK & METRICS ============ -->
+  <div class="grid-2">
+    <section>
+      <h2>技术栈</h2>
+      <div class="chips">
+        <span class="chip fill">React 19</span>
+        <span class="chip">Vite 6</span>
+        <span class="chip">Tailwind 4</span>
+        <span class="chip">Motion</span>
+        <span class="chip">React Router 7</span>
+        <span class="chip fill">Supabase</span>
+        <span class="chip">PostgreSQL + RLS</span>
+        <span class="chip">Storage</span>
+        <span class="chip">GitHub Pages</span>
+        <span class="chip">Gitee 双推</span>
+      </div>
+      <p style="margin-top:3mm; font-size:8.5pt; color:#555;">
+        <strong>工程量：</strong>7 个页面 / 4 张数据库表 / 1 套 CV 算法 / 双仓库镜像部署
+      </p>
+    </section>
+    <section>
+      <h2>成功指标框架</h2>
+      <p style="font-size:9pt; margin-bottom:2mm;"><strong>北极星：</strong>WRU — Weekly Recording User（每周完成一次完整分析录制的活跃用户）</p>
+      <ul class="clean">
+        <li>注册完成率 ≥ 60%</li>
+        <li>首次录制转化 ≥ 40%</li>
+        <li>视频检测成功率 ≥ 70%</li>
+        <li>7 日留存 ≥ 25%</li>
+        <li>单用户周均录制 ≥ 2 次</li>
+      </ul>
+    </section>
+  </div>
+
+  <!-- ============ STORIES ============ -->
+  <section>
+    <h2>可讲的 3 个小故事（面试加分）</h2>
+    <div class="stories">
+      <div class="story">
+        <div class="num">01</div>
+        <div class="title">显示 "--" 而非 "0"</div>
+        <div class="body">未检测到球时显示双短横，避免用户看到 0 产生"数据不动"的疑惑；这是 BBC/NBC 转播的专业仪表盘惯例。<strong>小决策，大信号。</strong></div>
+      </div>
+      <div class="story">
+        <div class="num">02</div>
+        <div class="title">保存失败自动下载</div>
+        <div class="body">Supabase 上传失败不报错，静默降级为浏览器本地下载，保证用户数据不丢。<strong>产品可靠性 &gt; 功能先进性。</strong></div>
+      </div>
+      <div class="story">
+        <div class="num">03</div>
+        <div class="title">GitHub + Gitee 双推</div>
+        <div class="body">配置 origin 多 push URL，一次 <code>git push</code> 同时同步到两个远程，解决国内访问速度问题。</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ FOOTER ============ -->
+  <footer>
+    <div class="links">
+      <span><strong>GitHub</strong> github.com/xcdh807/tennisline</span>
+      <span><strong>Gitee</strong> gitee.com/star-sea-807/tennisline</span>
+    </div>
+    <span class="tag">Tennis · AI · Web</span>
+  </footer>
+
+</div>
+</body>
+</html>
