@@ -55,45 +55,80 @@ function dilate2x(m: Uint8Array, w: number, h: number): Uint8Array {
   return cur;
 }
 
-// ---- Tennis ball color: VERY strict, only fluorescent yellow-green ----
+// ---- RGB → HSV conversion (matching Python cv2 convention: H:0-180, S:0-255, V:0-255) ----
+
+function rgbToHsv(r: number, g: number, b: number): [number, number, number] {
+  const rf = r / 255, gf = g / 255, bf = b / 255;
+  const max = Math.max(rf, gf, bf), min = Math.min(rf, gf, bf);
+  const d = max - min;
+  let h = 0;
+  if (d > 0) {
+    if (max === rf) h = 60 * (((gf - bf) / d) % 6);
+    else if (max === gf) h = 60 * ((bf - rf) / d + 2);
+    else h = 60 * ((rf - gf) / d + 4);
+    if (h < 0) h += 360;
+  }
+  const s = max > 0 ? d / max : 0;
+  // Convert to cv2 scale: H:0-180, S:0-255, V:0-255
+  return [h / 2, s * 255, max * 255];
+}
+
+// ---- Tennis ball color: HSV-based detection ----
+// Tennis ball = fluorescent optic yellow. In HSV (cv2 scale):
+//   H: 22-45 (yellow-green hue), S: 40-220, V: 140+ (bright)
+// Racket = low saturation (gray/white) → rejected by S < 35
+// Trees = H > 45 (greener hue) or G >> R → rejected
 
 function isTennisBallColor(r: number, g: number, b: number): number {
-  // Tennis ball = fluorescent optic yellow: R and G both high, B much lower
-  // RGB typical range: R:180-255, G:200-255, B:0-120
+  // ---- Fast RGB rejects ----
+  if (r + g + b < 250) return 0;          // Too dark
+  if (b > g || b > r) return 0;           // Blue dominant
+  if (b > 150) return 0;                  // Too much blue
 
-  // Hard rejects first:
-  if (r + g + b < 280) return 0;           // Too dark
-  if (b > 140) return 0;                    // Too much blue
-  if (b > g || b > r) return 0;            // Blue dominant = not ball
-  if (g < 100) return 0;                    // Not enough green
-  if (r < 80) return 0;                     // Not enough red
+  // Gray/white: low color spread (racket, strings, white clothing)
+  const maxC = Math.max(r, g, b), minC = Math.min(r, g, b);
+  if (maxC - minC < 30) return 0;
 
-  // Reject gray/white: R≈G≈B (racket, lines, shirt)
-  if (Math.abs(r - g) < 20 && Math.abs(g - b) < 30 && b > 100) return 0;
+  // Skin: R much higher than G with warm tone
+  if (r > g + 50 && r > b + 60) return 0;
 
-  // Reject skin: R >> G
-  if (r > g + 40) return 0;
+  // ---- HSV classification ----
+  const [h, s, v] = rgbToHsv(r, g, b);
 
-  // Reject pure green (trees, grass): G >> R
-  if (g > r + 50) return 0;
+  // Hue: tennis ball is yellow-green, H roughly 22-45 in cv2 scale
+  if (h < 18 || h > 48) return 0;
 
-  // Reject red/orange: R >> G
-  if (r > g + 30 && b < 80) return 0;
+  // Saturation: must have color (not gray racket) but not neon clothing
+  if (s < 35) return 0;   // White/gray → racket
+  if (s > 230) return 0;  // Oversaturated → clothing
 
-  // Now score remaining candidates
-  const gbDiff = g - b;  // Must be large for tennis ball
-  const rgDiff = Math.abs(r - g); // Should be small (ball is both R and G high)
+  // Value/brightness: tennis ball is relatively bright
+  if (v < 130) return 0;
 
-  // Tier 1: Perfect optic yellow — R≈G, both high, B very low
-  if (r > 170 && g > 180 && b < 100 && rgDiff < 40 && gbDiff > 80) return 5;
+  // ---- Cross-checks to separate ball from green trees ----
+  // Trees: G >> R (very green). Tennis ball: R ≈ G or R slightly < G
+  if (g > r + 55) return 0; // Strong green → tree/grass
 
-  // Tier 2: Good yellow-green — G slightly > R, B clearly low  
-  if (g > 150 && r > 130 && b < 120 && gbDiff > 50 && rgDiff < 50) return 4;
+  // G - B spread: tennis ball has moderate to large spread
+  const gbDiff = g - b;
+  if (gbDiff < 20) return 0;
 
-  // Tier 3: Acceptable — still has clear yellow-green signature
-  if (g > 120 && r > 100 && b < 130 && gbDiff > 35 && rgDiff < 60) return 3;
+  // ---- Score tiers ----
+  const rgDiff = Math.abs(r - g);
 
-  return 0; // Doesn't match tennis ball
+  // Tier 1: Ideal optic yellow — H:25-38, bright, R≈G, B low
+  if (h >= 25 && h <= 38 && s >= 50 && v >= 180 && rgDiff < 35 && gbDiff > 50) return 5;
+
+  // Tier 2: Good yellow-green
+  if (h >= 22 && h <= 42 && s >= 45 && v >= 160 && rgDiff < 50 && gbDiff > 35) return 4;
+
+  // Tier 3: Acceptable — wider range, still distinctive
+  if (h >= 18 && h <= 48 && s >= 35 && v >= 130 && gbDiff > 20) return 3;
+
+  // Tier 4: Marginal but possible (darker conditions, motion blur)
+  if (h >= 18 && h <= 48 && s >= 35 && v >= 110) return 2;
+
+  return 0;
 }
 
 // ---- Find ball: color+motion → cluster → shape check ----
@@ -108,7 +143,6 @@ interface BallCandidate {
 function findBall(
   img: ImageData, motion: Uint8Array, w: number, h: number
 ): BallCandidate | null {
-  // Step 1: Score every motion pixel by color
   const d = img.data;
   const scored: { x: number; y: number; s: number }[] = [];
 
@@ -123,8 +157,8 @@ function findBall(
 
   if (scored.length < 2) return null;
 
-  // Step 2: Grid clustering (20px cells — bigger to capture full ball)
-  const CS = 20;
+  // Grid clustering (18px cells)
+  const CS = 18;
   const grid: Map<string, { xs: number[]; ys: number[]; totalS: number }> = new Map();
   for (const p of scored) {
     const key = `${Math.floor(p.x / CS)},${Math.floor(p.y / CS)}`;
@@ -133,18 +167,15 @@ function findBall(
     g.xs.push(p.x); g.ys.push(p.y); g.totalS += p.s;
   }
 
-  // Step 3: Merge adjacent cells into clusters
   const cells = [...grid.entries()].map(([key, val]) => {
     const [gx, gy] = key.split(',').map(Number);
     return { gx, gy, ...val };
   });
 
-  // Simple: for each cell, find its bounding box including neighbors
   let best: BallCandidate | null = null;
   let bestScore = 0;
 
   for (const cell of cells) {
-    // Gather this cell + direct neighbors
     let allXs = [...cell.xs];
     let allYs = [...cell.ys];
     let totalS = cell.totalS;
@@ -160,41 +191,53 @@ function findBall(
     const n = allXs.length;
     if (n < 2) continue;
 
-    // Bounding box of this cluster
     const minX = Math.min(...allXs), maxX = Math.max(...allXs);
     const minY = Math.min(...allYs), maxY = Math.max(...allYs);
     const cw = maxX - minX + 1;
     const ch = maxY - minY + 1;
 
-    // ---- Shape filters: tennis ball is SMALL and ROUND ----
-
-    // Max size at 320x240: ball is typically 5-30px wide
+    // Size: tennis ball at 320x240 is roughly 4-30px
     if (cw > 35 || ch > 35) continue;
-    if (n > 60) continue; // Too many candidate pixels
+    if (n > 60) continue;
 
-    // Must be roughly round (racket is elongated)
+    // Aspect ratio: ball is roughly round, racket is elongated
     const aspect = cw / Math.max(ch, 1);
     if (aspect > 2.0 || aspect < 0.5) continue;
 
-    // Must be compact (not scattered noise)
-    const density = n / ((cw / 2 + 1) * (ch / 2 + 1));
+    // Density check
+    const bbArea = (cw / 2 + 1) * (ch / 2 + 1);
+    const density = n / bbArea;
     if (density < 0.15) continue;
 
-    // Score: color quality + compactness + small = better
+    // Circularity: check pixel distribution around center
+    const cx = allXs.reduce((a, b) => a + b, 0) / n;
+    const cy = allYs.reduce((a, b) => a + b, 0) / n;
+    const radius = Math.max(cw, ch) / 2;
+    let withinCircle = 0;
+    for (let i = 0; i < allXs.length; i++) {
+      const dx = allXs[i] - cx;
+      const dy = allYs[i] - cy;
+      if (Math.sqrt(dx * dx + dy * dy) <= radius * 1.3) withinCircle++;
+    }
+    const circularFraction = withinCircle / n;
+    if (circularFraction < 0.6) continue;
+
+    // Score
     const avgS = totalS / n;
     const compactBonus = Math.min(density, 1) * 2;
+    const circleBonus = circularFraction * 1.5;
     const sizeBonus = (cw <= 15 && ch <= 15) ? 3 : (cw <= 25 && ch <= 25) ? 1.5 : 0;
-    const finalScore = avgS + compactBonus + sizeBonus;
+    const finalScore = avgS + compactBonus + circleBonus + sizeBonus;
 
     if (finalScore > bestScore) {
       bestScore = finalScore;
-      const cx = Math.round(allXs.reduce((a, b) => a + b, 0) / n);
-      const cy = Math.round(allYs.reduce((a, b) => a + b, 0) / n);
-      best = { x: cx, y: cy, score: finalScore, clusterW: cw, clusterH: ch, pixelCount: n };
+      best = {
+        x: Math.round(cx), y: Math.round(cy),
+        score: finalScore, clusterW: cw, clusterH: ch, pixelCount: n
+      };
     }
   }
 
-  // Only return if score is high enough — conservative to avoid false positives
   if (best && best.score >= 4) return best;
   return null;
 }
@@ -212,17 +255,17 @@ class Tracker {
   update(c: BallCandidate | null): { x: number; y: number } | null {
     if (!c) { this.lostCount++; return null; }
 
-    // Physics: max 60px jump (ball at 320x240 can't teleport further in 100ms)
+    // Physics: max 55px jump at 320x240
     if (this.history.length > 0) {
       const last = this.history[this.history.length - 1];
       const dist = Math.sqrt((c.x - last.x)**2 + (c.y - last.y)**2);
-      if (dist > 60 && this.lostCount < 8) {
+      if (dist > 55 && this.lostCount < 8) {
         this.lostCount++;
-        return null; // Likely false detection
+        return null;
       }
     }
 
-    // Static filter
+    // Static filter — reject truly stationary objects
     if (this.history.length >= 3) {
       const r = this.history.slice(-3);
       let td = 0;
